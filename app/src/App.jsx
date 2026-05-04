@@ -224,28 +224,38 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     return () => cancelAnimationFrame(raf);
   }, [bars, projectionBars]);
 
-  // ─── Place a small dot on an indicator's pane at the last historical bar ─
-  // FintaChart's PointPlot.Style.DOT renders as a vertical tick line through
-  // addPlot(), not an actual dot. Use a DotShape positioned at (date, value).
-  const placeNowDot = (ind, color, value) => {
-    if (!ind?.pane || !Number.isFinite(value) || bars.length === 0) return null;
+  // ─── Vertical "now" marker on each indicator pane ───────────────────────
+  // Originally a DotShape pinned to (date, value), but the overlay-mode
+  // visible-range remap repositions the composite line without moving the
+  // shape, leaving the dot orphaned. A vertical line keyed only by date
+  // stays correct in every mode and zoom level.
+  const placeNowMarker = (ind, color) => {
+    if (!ind?.pane || bars.length === 0) return null;
     const FC = window.FintaChart;
     try {
-      const shape = new FC.DotShape({
-        radius: 3,
-        theme: { fillColor: color, strokeColor: color },
-        locked: true, hoverable: false, selectable: false,
-      });
-      const pt = new FC.DataPoint({
-        date: bars[bars.length - 1].date,
-        value,
-      });
+      const shape = new FC.VerticalLineShape();
+      shape.locked = true;
+      shape.hoverable = false;
+      shape.selectable = false;
+      const pt = new FC.DataPoint({ date: bars[bars.length - 1].date, value: 0 });
       if (Array.isArray(shape.points) && shape.points.length > 0) shape.points[0] = pt;
       else shape.points = [pt];
+      // Style via theme accessor after construction so we don't pass a
+      // possibly-malformed theme to the constructor.
+      try {
+        if (shape.theme) {
+          const stroke = shape.theme.stroke || shape.theme;
+          if (stroke) {
+            stroke.strokeColor = color;
+            stroke.width = 1;
+            stroke.lineStyle = 'dash';
+          }
+        }
+      } catch (_) { /* ignore theme errors */ }
       ind.pane.addShapes([shape]);
       return shape;
     } catch (e) {
-      console.warn('[placeNowDot]', e);
+      console.error('[placeNowMarker FAILED]', e);
       return null;
     }
   };
@@ -295,7 +305,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       ind._composite = series;
       chartRef.current.addIndicators(ind);
       compositeIndRef.current = ind;
-      placeNowDot(ind, '#ec4899', series[bars.length - 1]);
+      placeNowMarker(ind, '#8b949e');
 
       const inSample = weightedInSampleCorrelation(raw, closes, closes.length);
       const visible = pearson(raw, closes, 0, closes.length - 1);
@@ -324,7 +334,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       ind._cycleLength = len;
       ind._cycleSeries = Array.from(series);
       chartRef.current.addIndicators(ind);
-      placeNowDot(ind, PANE_PALETTE[i % PANE_PALETTE.length], series[bars.length - 1]);
+      placeNowMarker(ind, '#8b949e');
     });
 
     (async () => {
@@ -343,7 +353,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
         ind._ub   = resp?.ub   ?? [];
         ind._lb   = resp?.lb   ?? [];
         chartRef.current.addIndicators(ind);
-        placeNowDot(ind, '#e6edf3', (resp?.crsi ?? [])[bars.length - 1]);
+        placeNowMarker(ind, '#8b949e');
       } catch (e) { console.error('[CRSI]', e); }
     })();
 
