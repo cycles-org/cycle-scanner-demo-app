@@ -1,0 +1,485 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+/* ─── Theme variables ─────────────────────────────────────────────────────
+   Switched via body[data-theme="dark"|"light"] from the React layer. */
+body[data-theme="dark"], body:not([data-theme]) {
+  --bg-app:        #0d1117;
+  --bg-panel:      #161b22;
+  --bg-elev:       #21262d;
+  --bg-hover:      #1c2128;
+  --bg-row-sel:    rgba(88, 166, 255, 0.18);
+  --bg-row-dom:    rgba(63, 185, 80, 0.10);
+  --border:        #30363d;
+  --border-strong: #484f58;
+  --text:          #c9d1d9;
+  --text-muted:    #8b949e;
+  --text-dim:      #6e7681;
+  --accent:        #58a6ff;
+  --danger:        #f85149;
+  --good:          #3fb950;
+  --warn:          #d29922;
+  --resize:        #21262d;
+  --resize-active: #58a6ff;
+}
+body[data-theme="light"] {
+  --bg-app:        #f6f8fa;
+  --bg-panel:      #ffffff;
+  --bg-elev:       #f6f8fa;
+  --bg-hover:      #eaeef2;
+  --bg-row-sel:    rgba(9, 105, 218, 0.10);
+  --bg-row-dom:    rgba(31, 136, 61, 0.08);
+  --border:        #d0d7de;
+  --border-strong: #afb8c1;
+  --text:          #1f2328;
+  --text-muted:    #57606a;
+  --text-dim:      #6e7781;
+  --accent:        #0969da;
+  --danger:        #cf222e;
+  --good:          #1f883d;
+  --warn:          #9a6700;
+  --resize:        #d0d7de;
+  --resize-active: #0969da;
+}
+
+body {
+  font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-app);
+  color: var(--text);
+}
+
+/* ─── App layout ──────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+
+.layout { min-height: 0; height: 100%; }
+
+.chart-pane    { background: var(--bg-app); position: relative; height: 100%; }
+.spectrum-pane { background: var(--bg-app); position: relative; height: 100%; }
+.right-pane    { background: var(--bg-app); display: grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; border-left: 1px solid var(--border); }
+
+#chart-container { width: 100%; height: 100%; }
+
+/* ─── Resize handles ──────────────────────────────────────────────────── */
+.resize-handle {
+  background: var(--resize);
+  transition: background 120ms;
+}
+.resize-handle.vertical   { width: 4px; cursor: col-resize; }
+.resize-handle.horizontal { height: 4px; cursor: row-resize; }
+.resize-handle:hover, .resize-handle[data-resize-handle-active="true"] { background: var(--resize-active); }
+
+/* ─── Toolbar ─────────────────────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 100000;
+  flex-wrap: wrap;
+}
+.toolbar input,
+.toolbar button,
+.toolbar select {
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  border-radius: 4px;
+  font: inherit;
+}
+.toolbar input:focus { outline: none; border-color: var(--accent); }
+.toolbar button { cursor: pointer; }
+.toolbar button:hover { background: var(--bg-hover); border-color: var(--accent); }
+.toolbar .symbol-search { position: relative; min-width: 240px; }
+.toolbar .status { margin-left: auto; opacity: 0.85; font-size: 12px; }
+.toolbar .status.error { color: var(--danger); }
+
+.brand-mark { display: flex; align-items: center; gap: 8px; padding-right: 6px; }
+.brand-mark .dot {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+.brand-mark .brand-name { font-weight: 600; color: var(--text); }
+
+.logout-btn {
+  background: var(--bg-app);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 30px; height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.logout-btn:hover { background: var(--bg-hover); color: var(--danger); border-color: var(--danger); }
+
+.chart-empty-hint {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* ─── In-toolbar chip row ─────────────────────────────────────────────── */
+.header-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  height: 28px;
+  flex-wrap: wrap;
+}
+.header-chips .chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #0d1117;
+  font-weight: 700;
+  font-size: 11px;
+}
+.header-chips .cycle-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  color: #0d1117;
+  font-weight: 700;
+  font-size: 11px;
+}
+.header-chips .chip-sep { color: var(--text-dim); }
+.header-chips .muted { color: var(--text-muted); font-size: 11px; }
+.header-chips .sample-label { color: var(--text-muted); font-size: 11px; padding-left: 8px; border-left: 1px solid var(--border); margin-left: 4px; }
+
+.theme-toggle {
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 30px; height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.theme-toggle:hover { background: var(--bg-hover); border-color: var(--accent); }
+
+/* ─── Symbol search dropdown ──────────────────────────────────────────── */
+.dropdown {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  margin-top: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 100001;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.dropdown-item {
+  padding: 6px 9px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.dropdown-item:last-child { border-bottom: none; }
+.dropdown-item:hover { background: var(--accent); color: #fff; }
+.dropdown-item .symbol { font-weight: 600; }
+.dropdown-item .desc { font-size: 11px; opacity: 0.7; margin-left: 6px; }
+
+/* ─── Cycles table (right pane) ───────────────────────────────────────── */
+.cycles-table {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  min-height: 0;
+}
+.cycles-table.empty { padding: 12px; opacity: 0.6; }
+.cycles-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.cycles-toolbar .title { font-weight: 600; flex: 1; }
+.cycles-toolbar button {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.cycles-toolbar button:hover { color: var(--danger); }
+
+.cycles-scroll { overflow-y: auto; flex: 1; }
+.cycles-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cycles-table th, .cycles-table td {
+  text-align: right;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cycles-table th.col-pick, .cycles-table td.col-pick {
+  text-align: center;
+}
+.cycles-table th {
+  position: sticky; top: 0;
+  background: var(--bg-panel);
+  user-select: none;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.cycles-table th:hover { background: var(--bg-hover); color: var(--text); }
+.cycles-table th.sorted { color: var(--accent); }
+.cycles-table th .arrow { margin-left: 3px; font-size: 9px; opacity: 0.7; }
+
+.cycles-table tr.is-dominant td { background: var(--bg-row-dom); }
+.cycles-table tr.is-selected td { background: var(--bg-row-sel); }
+.cycles-table tr.is-dominant.is-selected td { background: var(--bg-row-sel); }
+
+/* Prominent checkbox — explicit visual control over the composite.
+   FintaChart's bundled CSS aggressively styles all `[type=checkbox]` (sets
+   opacity:0 and reassigns border via `.thmFintatechDarkTheme [type=checkbox]`),
+   so we use `!important` on the few properties that conflict. */
+.cycles-table input.select-cycle {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 !important;
+  border: 2px solid var(--accent) !important;
+  border-radius: 4px !important;
+  background: var(--bg-app) !important;
+  cursor: pointer !important;
+  position: relative !important;
+  opacity: 1 !important;            /* defeat FintaChart's [type=checkbox] { opacity: 0 } */
+  z-index: 1 !important;            /* defeat FintaChart's z-index: -1 */
+  transition: all 120ms;
+  box-shadow: 0 0 0 1px var(--bg-panel) inset;
+  vertical-align: middle;
+}
+.cycles-table input.select-cycle:hover {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.25);
+}
+.cycles-table input.select-cycle:checked {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+.cycles-table input.select-cycle:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px; top: 1px;
+  width: 6px; height: 11px;
+  border: solid #fff;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg);
+}
+.cycles-table th.col-pick, .cycles-table td.col-pick {
+  width: 36px;
+  padding: 4px 4px;
+}
+.cycles-table th.col-pane, .cycles-table td.col-pane {
+  border-left: 1px solid var(--border);
+}
+
+/* Second checkbox — distinct purple accent so users see it's a different action. */
+.cycles-table input.select-cycle.pane-cycle {
+  border-color: #a78bfa !important;
+}
+.cycles-table input.select-cycle.pane-cycle:hover {
+  border-color: #a78bfa !important;
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.30);
+}
+.cycles-table input.select-cycle.pane-cycle:checked {
+  background: #a78bfa !important;
+  border-color: #a78bfa !important;
+}
+
+.cycles-toolbar button {
+  font-size: 11px;
+  padding: 2px 6px;
+  margin-left: 4px;
+  border-radius: 3px;
+}
+.cycles-toolbar button[title*='composite']:hover { color: var(--accent); border-color: var(--accent); }
+.cycles-toolbar button[title*='individual']:hover { color: #a78bfa; border-color: #a78bfa; }
+
+.cycles-table tbody tr:hover td { background: var(--bg-hover); }
+
+.len-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #0d1117;
+  font-weight: 700;
+  font-size: 11px;
+  min-width: 32px;
+  text-align: center;
+}
+
+/* ─── Indicator panel (right pane bottom) ─────────────────────────────── */
+.indicator-panel {
+  padding: 10px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.indicator-panel .toggle {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  user-select: none;
+}
+.indicator-panel .toggle input { cursor: pointer; }
+.indicator-panel .sub-row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 11px; padding-left: 22px;
+  transition: opacity 120ms;
+}
+.indicator-panel .sub-row .sub-label { color: var(--text-muted); }
+.indicator-panel .sub-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding-left: 22px;
+  font-style: italic;
+  line-height: 1.3;
+}
+.indicator-panel .radio { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+.indicator-panel .radio input { cursor: pointer; margin: 0; }
+.indicator-panel .slider-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.indicator-panel .slider-row input[type="range"] { flex: 1; }
+.indicator-panel .slider-row .value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  width: 40px; text-align: right;
+  color: var(--accent);
+}
+
+/* ─── Spectrum pane ───────────────────────────────────────────────────── */
+.spectrum-host { width: 100%; height: 100%; position: relative; }
+.spectrum-empty {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; opacity: 0.5;
+}
+.spectrum-svg { display: block; }
+.spectrum-peak path:hover { filter: brightness(1.3); }
+
+/* Spectrum hover tooltip */
+.spectrum-tooltip {
+  position: absolute;
+  z-index: 50;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  min-width: 180px;
+}
+.spectrum-tooltip .row.title {
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.spectrum-tooltip .badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #0d1117;
+  font-weight: 700;
+  font-size: 11px;
+}
+.spectrum-tooltip .rank { color: var(--accent); font-size: 10px; }
+.spectrum-tooltip .grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+}
+.spectrum-tooltip .grid .full { grid-column: 1 / -1; }
+.spectrum-tooltip .grid div { display: flex; justify-content: space-between; gap: 8px; }
+.spectrum-tooltip .grid span { color: var(--text-muted); }
+.spectrum-tooltip .grid b { color: var(--text); font-weight: 600; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+/* ─── Login screen ────────────────────────────────────────────────────── */
+.login-screen {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(88, 166, 255, 0.10), transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(236, 72, 153, 0.08), transparent 50%),
+    var(--bg-app);
+}
+.login-theme-corner { position: absolute; top: 16px; right: 16px; }
+.login-card {
+  width: 100%; max-width: 420px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 32px 28px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.login-card .brand { display: flex; align-items: center; gap: 10px; }
+.login-card .brand .dot {
+  display: inline-block; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 16px var(--accent);
+}
+.login-card h1 {
+  margin: 0; font-size: 18px; font-weight: 600; color: var(--text);
+  letter-spacing: 0.2px;
+}
+.login-card .subtitle {
+  margin: 0; font-size: 13px; color: var(--text-muted);
+}
+.login-card .subtitle a { color: var(--accent); text-decoration: none; }
+.login-card .subtitle a:hover { text-decoration: underline; }
+.login-card input[type="password"] {
+  font: inherit; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  padding: 10px 12px;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.login-card input[type="password"]:focus { border-color: var(--accent); }
+.login-card button[type="submit"] {
+  font: inherit;
+  padding: 10px 14px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: opacity 120ms, background 120ms;
+}
+.login-card button[type="submit"]:hover:not([disabled]) { background: #1f6feb; }
+.login-card button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
+.login-card .error {
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.login-card .hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}

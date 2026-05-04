@@ -1,0 +1,88 @@
+Development Source License — Cycle Tools × FintaChart Scanner
+
+Copyright (c) 2026 Lars von Thienen. All rights reserved.
+
+1. GRANT
+
+Subject to the terms below, you are granted a non-exclusive, royalty-free,
+non-transferable, revocable right to:
+
+  (a) Clone, fork, and download this software.
+  (b) Read, study, and modify the source code.
+  (c) Run the software on your own machine for personal development, learning,
+      evaluation, or testing purposes.
+
+2. RESTRICTIONS
+
+You may NOT, under any circumstances:
+
+  (a) Deploy this software, or any derivative or modified version, to any
+      public-facing or online environment — including but not limited to any
+      server, hosting platform, container, edge function, or static-site host
+      that is reachable over the public Internet or any network not exclusively
+      under your personal administration.
+
+  (b) Make the software, or any service powered by it, available to any third
+      party, with or without payment, with or without authentication.
+
+  (c) Use the software, or any derivative, in production, in a commercial
+      offering, or as part of any product or service offered to others.
+
+  (d) Sublicense, sell, distribute as a service, or redistribute the software,
+      in whole or in part, in source or compiled form, except as a fork on a
+      public source-code-hosting platform under the same license terms.
+
+The ONLY authorized online deployment of this software is the one operated by
+the copyright holder at the domain "scanner.cycle.tools" (or any successor
+domain designated by the copyright holder).
+
+3. THIRD-PARTY COMPONENTS
+
+This software depends on the FintaChart library ("@fintatech/fintachart"),
+which is proprietary and requires its own commercial license from Fintatech
+for any deployed or network-accessible use. Compliance with the FintaChart
+license is your sole responsibility and is independent of this license.
+
+This software calls the WhenToTrade Cycle Tools API at api.cycle.tools. Each
+user supplies their own API key obtained from cycle.tools. The Cycle Tools
+API is governed by its own terms of service.
+
+4. ATTRIBUTION
+
+If you publish a fork or derivative work, you must:
+
+  (a) Include this license file unchanged.
+  (b) Include a clear notice in the README and source headers stating that
+      the work derives from the Cycle Tools × FintaChart Scanner originally
+      authored by Lars von Thienen.
+
+5. TERMINATION
+
+Any breach of section 2 immediately and automatically terminates all rights
+granted under section 1. On termination you must cease all use of the
+software and destroy all copies in your possession or control. Sections 3
+through 8 survive termination.
+
+6. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY
+CLAIM, DAMAGES, LOST PROFITS, LOST DATA, BUSINESS INTERRUPTION, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+8. SEVERABILITY
+
+If any provision of this license is held to be unenforceable, the remaining
+provisions remain in full effect.
+
+9. NOT LEGAL ADVICE
+
+This license has not been reviewed by a lawyer. If you intend to publish or
+enforce a software license commercially, consult qualified legal counsel.

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cycle Tools + FintaChart — integration test</title>
+
+    <!-- FintaChart CSS — order matters: externals first, main stylesheet last -->
+    <link rel="stylesheet" href="/vendor/fintachart/css/external/spectrum.min.css" />
+    <link rel="stylesheet" href="/vendor/fintachart/css/external/toastr.min.css" />
+    <link rel="stylesheet" href="/vendor/fintachart/css/external/jqNumericField.min.css" />
+    <link rel="stylesheet" href="/vendor/fintachart/css/FintaChart.min.css" />
+
+    <!-- FintaChart frameworks (must load before the main bundle).
+         detectizr + dom-to-image-more are required at runtime — the example HTML files
+         under node_modules/@fintatech/fintachart/*.html load them. Without them the
+         chart silently fails to construct. -->
+    <script src="/vendor/fintachart/scripts/frameworks/Intl.min.js"></script>
+    <script src="/vendor/fintachart/scripts/frameworks/moment.min.js"></script>
+    <script src="/vendor/fintachart/scripts/frameworks/detectizr.min.js"></script>
+    <script src="/vendor/fintachart/scripts/frameworks/dom-to-image-more.min.js"></script>
+    <script src="/vendor/fintachart/scripts/frameworks/i18nextXHRBackend.min.js"></script>
+
+    <!-- FintaChart main bundle + both light and dark themes preloaded -->
+    <script src="/vendor/fintachart/scripts/FintaChart.min.js"></script>
+    <script src="/vendor/fintachart/scripts/themes/defaultTheme.js"></script>
+    <script src="/vendor/fintachart/scripts/themes/fintatechDarkTheme.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

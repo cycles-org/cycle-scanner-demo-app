@@ -1,0 +1,38 @@
+# Node
+node_modules/
+
+# Vite build output
+dist/
+
+# Vite asset-copy plugin output (regenerated each build from node_modules/@fintatech/fintachart)
+public/vendor/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+
+# Claude project transcripts (live in ~/.claude, not here, but defensive ignore)
+.claude/projects/
+
+# Worktree marker (Claude Code chapter / agent worktrees)
+.claude-worktree
+
+# ─── Private — do NOT publish to the public repo ──────────────────────────
+# The project-scoped FintaChart skill and our internal docs / feedback notes
+# stay local. The build doesn't depend on any of these.
+.claude/
+FintaChart-feedback.md
+DEPLOYMENT.md
