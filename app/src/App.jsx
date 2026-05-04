@@ -93,12 +93,17 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
   const compositeIndRef = useRef(null);
   const rawCompositeRef = useRef(null);
 
-  // Keep theme in sync with FintaChart
+  // Keep theme in sync with FintaChart.
+  // Themes are sourced from `FintaChart.Themes.<name>` (3.1.2+). The script-tag
+  // globals `window.defaultTheme` / `window.fintatechDarkTheme` are kept as
+  // fallback for older bundles.
   useEffect(() => {
-    if (chartRef.current && window.FintaChart) {
-      const next = theme === 'light' ? window.defaultTheme : window.fintatechDarkTheme;
-      if (next) chartRef.current.theme = next;
-    }
+    const FC = window.FintaChart;
+    if (!chartRef.current || !FC) return;
+    const next = theme === 'light'
+      ? (FC.Themes?.default ?? window.defaultTheme)
+      : (FC.Themes?.fintatechDark ?? window.fintatechDarkTheme);
+    if (next) chartRef.current.theme = next;
   }, [theme]);
 
   // ─── Chart bootstrap ────────────────────────────────────────────────────
@@ -107,13 +112,19 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     initRef.current = true;
 
     const FC = window.FintaChart;
-    const initialTheme = theme === 'light' ? window.defaultTheme : window.fintatechDarkTheme;
+    const initialTheme = theme === 'light'
+      ? (FC.Themes?.default ?? window.defaultTheme)
+      : (FC.Themes?.fintatechDark ?? window.fintatechDarkTheme);
     const container = document.getElementById('chart-container');
 
     const datafeed = new CycleToolsDatafeed();
     datafeedRef.current = datafeed;
 
-    const chart = FC.createChart(container, {
+    // 3.1.2+: `new FintaChart.Chart({ container, ...config })` is the documented
+    // primary entry point (matches the README quickstart). The `createChart` factory
+    // is kept for backward-compat but the constructor form is canonical.
+    const chart = new FC.Chart({
+      container,
       width: '100%', height: '100%',
       theme: initialTheme,
       datafeed,
