@@ -1,6 +1,6 @@
 # Cycle Tools × FintaChart Scanner
 
-A web-based cycle analysis dashboard built on top of the [WhenToTrade Cycle Tools API](https://api.cycle.tools) using the [@fintatech/fintachart](https://github.com/fintatech/fintachart) charting library.
+A web-based cycle analysis dashboard built on top of the [FSC API](https://api.cycle.tools) using the [@fintatech/fintachart](https://github.com/fintatech/fintachart) charting library.
 
 ## Features
 
@@ -74,4 +74,4 @@ GitHub provisions Let's Encrypt automatically once DNS resolves. First deploy ta
 ## Acknowledgements
 
 - [@fintatech/fintachart](https://github.com/fintatech/fintachart) charting library
-- [WhenToTrade Cycle Tools API](https://api.cycle.tools)
+- [FSC Cycle Tools API](https://api.cycle.tools)
