@@ -1,6 +1,6 @@
 # Cycle Tools × FintaChart Scanner
 
-A web-based cycle analysis dashboard built on top of the [FSC API](https://api.cycle.tools) using the [@fintatech/fintachart](https://github.com/fintatech/fintachart) charting library.
+A web-based cycle analysis dashboard built on top of the [Cycles API](https://api.cycle.tools) using the [@fintatech/fintachart](https://github.com/fintatech/fintachart) charting library.
 
 ## Features
 
