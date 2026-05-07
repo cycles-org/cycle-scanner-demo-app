@@ -1,12 +1,13 @@
 // Right-pane cycles table. Sortable headers, two multi-select columns:
 //   - "C" (composite) — selected cycles are summed into the pink composite line
 //   - "P" (pane)      — selected cycles each get their own pane below the chart
-// Phase-colored length badges (matching .NET CycleScanner2 phase classifier),
-// light-green row tint for cycles with dominantRank in {1, 2, 3}.
+// Each cycle's Len cell shows a small PhaseIcon (mini sine wave + chevron)
+// next to the cycle length, communicating both phase position AND direction
+// at a glance. Light-green row tint for cycles with dominantRank in {1, 2, 3}.
 
 import { useMemo, useState } from 'react';
 import { useScannerStore } from '../state/useScannerStore.js';
-import { phaseColorForPeak } from '../utils/phaseColor.js';
+import PhaseIcon from './PhaseIcon.jsx';
 
 const COLUMNS = [
   { key: 'cycleLength',    label: 'Len',  fmt: (v) => Math.round(v) },
@@ -80,7 +81,7 @@ export default function CyclesTable() {
               const isSelected = selected.has(p.cycleLength);
               const isPaneSelected = paneSelected.has(p.cycleLength);
               const isDominant = p.dominantRank > 0 && p.dominantRank <= 3;
-              const badgeColor = phaseColorForPeak(p, false);
+              const phaseStatus = p.avgPhaseStatus ?? p.phaseStatus ?? '';
               return (
                 <tr
                   key={`${p.cycleLength}-${p.minBarNum}`}
@@ -110,12 +111,13 @@ export default function CyclesTable() {
                     />
                   </td>
                   <td>
-                    <span
-                      className="len-badge"
-                      style={{ backgroundColor: badgeColor }}
-                      title={`phase: ${p.avgPhaseStatus ?? p.phaseStatus ?? '?'}`}
-                    >
-                      {Math.round(p.cycleLength)}
+                    <span className="cycle-len-cell" title={`phase: ${phaseStatus || '?'}`}>
+                      <PhaseIcon
+                        phaseStatus={phaseStatus}
+                        avgPhaseScore={p.avgPhaseScore}
+                        size={16}
+                      />
+                      <span className="len-num">{Math.round(p.cycleLength)}</span>
                     </span>
                   </td>
                   {COLUMNS.slice(1).map((c) => (

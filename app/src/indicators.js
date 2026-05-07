@@ -160,14 +160,18 @@ export function getIndicatorClasses() {
       this.name = 'Cyclic RSI';
       this.isOverlay = false;
       this.inputDataRowName = F.DataRowsMarker.CLOSE;
-      this.lineColor = '#e6edf3';
+      // Theme-adaptive: plotTheme.lines[0] is the only theme-aware preset
+      // (white on dark, black on light). The previous hard-coded '#e6edf3'
+      // was invisible on light theme. Bands stay hard-coded — red/green
+      // are semantic and work on both themes.
+      this.lineColor = this.plotTheme?.lines?.[0]?.strokeColor || '#e6edf3';
       this.lineWidth = 2;
       this.period = 14;
       this.allowSettingsDialog = false;
       this.addPlot(this.lineColor, 'CRSI');
       this.addPlot('#f85149', 'UB');
       this.addPlot('#3fb950', 'LB');
-      this.addLine('#666666', 50);
+      this.addLine(this.levelsTheme?.line5?.strokeColor || '#666666', 50);
     }
 
     onInputTick() {
