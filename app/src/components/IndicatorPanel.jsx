@@ -41,7 +41,7 @@ export default function IndicatorPanel() {
           <span>price overlay</span>
         </label>
       </div>
-      <div className="sub-hint">pick the initial placement here — or right-click the composite legend in the chart for "Move pane / Separate pane" (FintaChart 3.1.4+)</div>
+      <div className="sub-hint">use these radios to move the composite — the chart's right-click menu shows "Move pane" items in 3.1.4 but they remain disabled for indicators with precomputed series</div>
       <label className="toggle">
         <input type="checkbox" checked={showCRSI} onChange={(e) => setShowCRSI(e.target.checked)} />
         <span>Cyclic RSI</span>
