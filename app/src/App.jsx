@@ -3,7 +3,7 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'reac
 import LoginScreen from './components/LoginScreen.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import SymbolSearch from './SymbolSearch.jsx';
-import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError, searchSymbols } from './api.js';
+import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError } from './api.js';
 import { CycleToolsDatafeed } from './CycleToolsDatafeed.js';
 import { getIndicatorClasses } from './indicators.js';
 import {
@@ -140,64 +140,33 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     });
     chartRef.current = chart;
 
-    // ─── Built-in toolbar search modal (FintaChart 3.1.4+) ────────────────
-    // The chart's toolbar exposes a search button that opens a modal with
-    // text input + exchange-filter tabs. Per docs, the integration is via
-    // overriding three static methods (NOT the legacy `searchInstruments`
-    // config callback, which is a no-op stub on the chart). Once wired,
-    // the modal handles UI rendering, debouncing, and click-to-select; the
-    // user's pick fires `INSTRUMENT_CHANGED`, which our listener routes
-    // through the same `setPicked()` entry point as our custom SymbolSearch
-    // (so both UI paths share the existing data pipeline).
+    // NOTE: 3.1.4's built-in toolbar search modal expects three overrides
+    // — `FintaChart.Instrument.filter`, `Instrument.filterById`, and
+    // `chart.exchanges()` — per `examples/html/15-instrument-search/`. We
+    // tried wiring them in this app and confirmed two issues that block
+    // the integration:
     //
-    // Reference: examples/html/15-instrument-search/ in the fintachart repo.
-    FC.Instrument.filter = async (query, exchanges, page, size) => {
-      try {
-        const raw = await searchSymbols(query || '', apiKey);
-        const filtered = exchanges?.length
-          ? raw.filter((s) => exchanges.includes(s.exchange))
-          : raw;
-        const mapped = filtered.map((s) => ({
-          id: s.symbolId,                  // canonical FintaChart id
-          symbol: s.symbol,
-          company: s.shortName,
-          exchange: s.exchange,
-          type: s.type,
-          tickSize: 0.01,
-          pricePrecision: 2,
-          // Keep API-original fields so our pipeline still works.
-          symbolId: s.symbolId,
-          shortName: s.shortName,
-        }));
-        if (typeof page === 'number' && typeof size === 'number') {
-          const start = Math.max(0, page - 1) * size;
-          return mapped.slice(start, start + size);
-        }
-        return mapped;
-      } catch (e) {
-        console.error('[Instrument.filter]', e);
-        return [];
-      }
-    };
-
-    FC.Instrument.filterById = async (id) => {
-      // No dedicated lookup endpoint in our REST API — return a minimal
-      // stub that's enough for the chart to set the toolbar label. Real
-      // data load happens via the `picked` pipeline below once
-      // INSTRUMENT_CHANGED routes the id back into our state.
-      const guess = String(id || '').split('.')[0] || '';
-      return { id, symbol: guess, exchange: '', tickSize: 0.01 };
-    };
-
-    chart.exchanges = () => ['NASDAQ', 'NYSE', 'AMEX', 'CRYPTO', 'FOREX'];
-
-    // Bridge the built-in modal's selection into our existing pipeline by
-    // listening for INSTRUMENT_CHANGED. We compare ids to avoid feedback
-    // loops with our own internal `chart.instrument = ...` writes.
+    //   (a) Returning [] from `chart.exchanges()` crashes the modal with
+    //       `Failed to execute 'querySelector' on 'Element': ' > .active'
+    //       is not a valid selector` — the bundle builds a selector that
+    //       assumes a non-empty tabs container.
+    //   (b) Even with a non-empty list, when the user types a query the
+    //       modal does NOT call our overridden `Instrument.filter` (nor
+    //       any of `InstrumentSearch.prototype.{getInstruments,
+    //       getInstrumentById, generateSearchResults, loadData}`). The
+    //       integration path the modal actually uses isn't documented and
+    //       wasn't reachable via the static-method overrides.
+    //
+    // Both findings are flagged in our 3.1.4 feedback document. Until we
+    // (or the maintainers) work out the missing integration step, our
+    // custom `SymbolSearch.jsx` above the chart remains the canonical
+    // search UX. We keep an INSTRUMENT_CHANGED listener so that IF the
+    // toolbar modal ever does fire a pick (or any other in-chart route
+    // sets the instrument), we'll still route it through the existing
+    // pipeline — no harm in having the bridge.
     const onInstrumentChanged = (e) => {
       const next = e?.value;
       if (!next?.id) return;
-      // Read the latest picked off the store directly to avoid stale closure.
       const cur = useScannerStore.getState().picked;
       if (cur?.symbolId === next.id) return;     // already loaded — skip
       useScannerStore.getState().setPicked({
