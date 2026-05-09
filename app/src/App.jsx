@@ -3,7 +3,7 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'reac
 import LoginScreen from './components/LoginScreen.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import SymbolSearch from './SymbolSearch.jsx';
-import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError } from './api.js';
+import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError, searchSymbols } from './api.js';
 import { CycleToolsDatafeed } from './CycleToolsDatafeed.js';
 import { getIndicatorClasses } from './indicators.js';
 import {
@@ -140,6 +140,75 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     });
     chartRef.current = chart;
 
+    // ─── Built-in toolbar search modal (FintaChart 3.1.4+) ────────────────
+    // The chart's toolbar exposes a search button that opens a modal with
+    // text input + exchange-filter tabs. Per docs, the integration is via
+    // overriding three static methods (NOT the legacy `searchInstruments`
+    // config callback, which is a no-op stub on the chart). Once wired,
+    // the modal handles UI rendering, debouncing, and click-to-select; the
+    // user's pick fires `INSTRUMENT_CHANGED`, which our listener routes
+    // through the same `setPicked()` entry point as our custom SymbolSearch
+    // (so both UI paths share the existing data pipeline).
+    //
+    // Reference: examples/html/15-instrument-search/ in the fintachart repo.
+    FC.Instrument.filter = async (query, exchanges, page, size) => {
+      try {
+        const raw = await searchSymbols(query || '', apiKey);
+        const filtered = exchanges?.length
+          ? raw.filter((s) => exchanges.includes(s.exchange))
+          : raw;
+        const mapped = filtered.map((s) => ({
+          id: s.symbolId,                  // canonical FintaChart id
+          symbol: s.symbol,
+          company: s.shortName,
+          exchange: s.exchange,
+          type: s.type,
+          tickSize: 0.01,
+          pricePrecision: 2,
+          // Keep API-original fields so our pipeline still works.
+          symbolId: s.symbolId,
+          shortName: s.shortName,
+        }));
+        if (typeof page === 'number' && typeof size === 'number') {
+          const start = Math.max(0, page - 1) * size;
+          return mapped.slice(start, start + size);
+        }
+        return mapped;
+      } catch (e) {
+        console.error('[Instrument.filter]', e);
+        return [];
+      }
+    };
+
+    FC.Instrument.filterById = async (id) => {
+      // No dedicated lookup endpoint in our REST API — return a minimal
+      // stub that's enough for the chart to set the toolbar label. Real
+      // data load happens via the `picked` pipeline below once
+      // INSTRUMENT_CHANGED routes the id back into our state.
+      const guess = String(id || '').split('.')[0] || '';
+      return { id, symbol: guess, exchange: '', tickSize: 0.01 };
+    };
+
+    chart.exchanges = () => ['NASDAQ', 'NYSE', 'AMEX', 'CRYPTO', 'FOREX'];
+
+    // Bridge the built-in modal's selection into our existing pipeline by
+    // listening for INSTRUMENT_CHANGED. We compare ids to avoid feedback
+    // loops with our own internal `chart.instrument = ...` writes.
+    const onInstrumentChanged = (e) => {
+      const next = e?.value;
+      if (!next?.id) return;
+      // Read the latest picked off the store directly to avoid stale closure.
+      const cur = useScannerStore.getState().picked;
+      if (cur?.symbolId === next.id) return;     // already loaded — skip
+      useScannerStore.getState().setPicked({
+        symbol: next.symbol,
+        symbolId: next.id,
+        shortName: next.company || next.symbol,
+        exchange: next.exchange || '',
+      });
+    };
+    chart.on(FC.ChartEvent.INSTRUMENT_CHANGED, onInstrumentChanged);
+
     // Tell FintaChart to relayout when its container changes size — fixes the
     // "chart doesn't fill the pane after the user drags a resize handle" bug.
     // rAF-throttled so a continuous drag fires at most once per frame.
@@ -160,6 +229,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     return () => {
       cancelAnimationFrame(resizeRaf);
       try { ro.disconnect(); } catch (_) {}
+      try { chart.off?.(FC.ChartEvent.INSTRUMENT_CHANGED, onInstrumentChanged); } catch (_) {}
       try { chart.dispose(); } catch (_) {}
       chartRef.current = null;
       datafeedRef.current = null;
@@ -184,8 +254,14 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
         datafeedRef.current.setBars(fresh);
         if (chartRef.current.barDataRows().close.length > 0) chartRef.current.trimDataRows(0);
         chartRef.current.applyChartType(isCloseOnly(fresh) ? 'line' : 'candle');
-        // Update the chart's instrument label so the toolbar shows the picked symbol.
+        // Update the chart's instrument label so the toolbar shows the picked
+        // symbol. We pass the canonical `id` so 3.1.2+'s id-based equality
+        // check fires correctly — no `id` would make `Instrument.equals` reduce
+        // to `undefined === undefined` (silent no-op). The INSTRUMENT_CHANGED
+        // listener compares ids and skips when same, preventing feedback loops
+        // when the toolbar search modal triggers this same path.
         chartRef.current.instrument = {
+          id: picked.symbolId ?? picked.SymbolId,
           symbol: picked.symbol ?? picked.Symbol,
           exchange: picked.exchange ?? picked.Exchange ?? '',
           tickSize: 0.01,
