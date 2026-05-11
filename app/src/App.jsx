@@ -3,7 +3,15 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'reac
 import LoginScreen from './components/LoginScreen.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import SymbolSearch from './SymbolSearch.jsx';
-import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError } from './api.js';
+import {
+  loadBars,
+  cycleScanner,
+  crsi,
+  detrendTrend,
+  isCloseOnly,
+  QuotaError,
+  searchSymbols,
+} from './api.js';
 import { CycleToolsDatafeed } from './CycleToolsDatafeed.js';
 import { getIndicatorClasses } from './indicators.js';
 import {
@@ -49,7 +57,7 @@ export default function App() {
       />
     );
   }
-
+  
   return (
     <ScannerApp
       apiKey={apiKey}
@@ -120,6 +128,75 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     const datafeed = new CycleToolsDatafeed();
     datafeedRef.current = datafeed;
 
+    // ── Native toolbar search modal: register BEFORE `new FC.Chart` ──────
+    // 3.1.4 had a partner-reported regression where overrides installed
+    // *after* the constructor weren't seen by the modal — same version,
+    // same datafeed shape as ours, but their `Instrument.filter` was
+    // never invoked. Our team couldn't reproduce, which means the
+    // working/broken split is timing-dependent. Registering up-front
+    // closes the race window for free: by the time anything inside
+    // `new FC.Chart` can snapshot or bind `FC.Instrument.filter`, the
+    // override is already in place. Mirrors the 15-instrument-search
+    // example, which sets `Instrument.filter` at module top-level
+    // before constructing the chart.
+    //
+    // `chart.exchanges` is an instance method (not on `FC.Instrument`)
+    // and must stay below; same for INSTRUMENT_CHANGED. Both are only
+    // read when the user opens the modal / picks something, never in
+    // the constructor, so post-construction registration is fine for them.
+
+    let lastResults = [];
+
+    // cycle.tools SearchSymbols returns PascalCase OR camelCase fields
+    // depending on the dataset (api.js patches the same way in getDatasetSeries).
+    // Normalise so FintaChart's id-based identity check works.
+    const normalise = (r) => {
+      const sid = r.symbolId ?? r.SymbolId ?? r.id ?? r.Id;
+      return {
+        ...r,
+        id:       String(sid),
+        symbolId: sid,
+        symbol:   r.symbol   ?? r.Symbol   ?? '',
+        exchange: r.exchange ?? r.Exchange ?? '',
+        company:  r.company  ?? r.Company  ?? r.description ?? r.Description ?? '',
+        type:     r.type     ?? r.Type     ?? r.instrumentType ?? r.InstrumentType ?? '',
+        tickSize: r.tickSize ?? r.TickSize ?? 0.01,
+      };
+    };
+
+    FC.Instrument.filter = async (query, filters, page, size) => {
+      try {
+        const raw = await searchSymbols(query ?? '', apiKey);
+        let list = (raw ?? []).map(normalise);
+        if (Array.isArray(filters) && filters.length > 0) {
+          list = list.filter((i) => filters.includes(i.exchange));
+        }
+        if (typeof page === 'number' && typeof size === 'number') {
+          const start = Math.max(0, page - 1) * size;
+          list = list.slice(start, start + size);
+        }
+        lastResults = list;
+        return list;
+      } catch (e) {
+        console.error('[FC.Instrument.filter]', e);
+        return [];
+      }
+    };
+
+    FC.Instrument.filterById = async (id) => {
+      const hit = lastResults.find((i) => String(i.id) === String(id));
+      if (hit) return hit;
+      try {
+        const raw = await searchSymbols(String(id), apiKey);
+        const list = (raw ?? []).map(normalise);
+        const match = list.find((i) => String(i.id) === String(id));
+        return match ?? { id, symbol: '—', exchange: '', tickSize: 0.01 };
+      } catch (e) {
+        console.error('[FC.Instrument.filterById]', e);
+        return { id, symbol: '—', exchange: '', tickSize: 0.01 };
+      }
+    };
+
     // 3.1.2+: `new FintaChart.Chart({ container, ...config })` is the documented
     // primary entry point (matches the README quickstart). The `createChart` factory
     // is kept for backward-compat but the constructor form is canonical.
@@ -140,40 +217,24 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     });
     chartRef.current = chart;
 
-    // NOTE: 3.1.4's built-in toolbar search modal expects three overrides
-    // — `FintaChart.Instrument.filter`, `Instrument.filterById`, and
-    // `chart.exchanges()` — per `examples/html/15-instrument-search/`. We
-    // tried wiring them in this app and confirmed two issues that block
-    // the integration:
-    //
-    //   (a) Returning [] from `chart.exchanges()` crashes the modal with
-    //       `Failed to execute 'querySelector' on 'Element': ' > .active'
-    //       is not a valid selector` — the bundle builds a selector that
-    //       assumes a non-empty tabs container.
-    //   (b) Even with a non-empty list, when the user types a query the
-    //       modal does NOT call our overridden `Instrument.filter` (nor
-    //       any of `InstrumentSearch.prototype.{getInstruments,
-    //       getInstrumentById, generateSearchResults, loadData}`). The
-    //       integration path the modal actually uses isn't documented and
-    //       wasn't reachable via the static-method overrides.
-    //
-    // Both findings are flagged in our 3.1.4 feedback document. Until we
-    // (or the maintainers) work out the missing integration step, our
-    // custom `SymbolSearch.jsx` above the chart remains the canonical
-    // search UX. We keep an INSTRUMENT_CHANGED listener so that IF the
-    // toolbar modal ever does fire a pick (or any other in-chart route
-    // sets the instrument), we'll still route it through the existing
-    // pipeline — no harm in having the bridge.
-    const onInstrumentChanged = (e) => {
-      const next = e?.value;
-      if (!next?.id) return;
+    // `exchanges` is per-instance, register after construction. Returning []
+    chart.exchanges = () => [];
+
+    // INSTRUMENT_CHANGED fires both on modal picks and on programmatic
+    // `chart.instrument = …` in the pipeline. We read chart.instrument
+    // directly because the event payload shape isn't documented and
+    // differs across 3.1.x builds. Feedback-loop guard via id equality.
+    const onInstrumentChanged = () => {
+      const inst = chart.instrument;
+      if (!inst || inst.symbol === '—' || !inst.id) return;
       const cur = useScannerStore.getState().picked;
-      if (cur?.symbolId === next.id) return;     // already loaded — skip
+      const curId = cur && (cur.symbolId ?? cur.SymbolId);
+      if (curId != null && String(curId) === String(inst.id)) return;
       useScannerStore.getState().setPicked({
-        symbol: next.symbol,
-        symbolId: next.id,
-        shortName: next.company || next.symbol,
-        exchange: next.exchange || '',
+        ...inst,
+        symbolId: inst.symbolId ?? inst.id,
+        symbol:   inst.symbol,
+        exchange: inst.exchange ?? '',
       });
     };
     chart.on(FC.ChartEvent.INSTRUMENT_CHANGED, onInstrumentChanged);
