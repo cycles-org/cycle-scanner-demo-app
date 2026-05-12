@@ -8,7 +8,6 @@ import { CycleToolsDatafeed } from './CycleToolsDatafeed.js';
 import { getIndicatorClasses } from './indicators.js';
 import {
   buildCompositeSeries,
-  mapCompositeToPriceRange,
   generateFutureBars,
   pearson,
   weightedInSampleCorrelation,
@@ -91,7 +90,6 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
   const datafeedRef = useRef(null);
   const initRef = useRef(false);
   const compositeIndRef = useRef(null);
-  const rawCompositeRef = useRef(null);
 
   // Keep theme in sync with FintaChart.
   // Themes are sourced from `FintaChart.Themes.<name>` (3.1.2+). The script-tag
@@ -350,15 +348,23 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
 
     if (showComposite && selectedCycles.length > 0) {
       const raw = buildCompositeSeries(selectedCycles, totalBars);
-      rawCompositeRef.current = raw;
-      const series = compositeMode === 'overlay'
-        ? mapCompositeToPriceRange(raw, closes.slice(-500), { fillFraction: 0.6 })
-        : Array.from(raw);
+      // Both modes now feed raw composite values. Overlay mode pipes them through
+      // a dedicated vertical scale via Indicator.bindToVerticalScale() (3.1.5+),
+      // so price-range remapping is no longer needed.
+      const series = Array.from(raw);
       setComposite(series);
 
       const Klass = compositeMode === 'overlay' ? CompositeCycleOverlay : CompositeCyclePane;
       const ind = new Klass();
       ind._composite = series;
+
+      if (compositeMode === 'overlay') {
+        const scale = chartRef.current.addVerticalScale();
+        scale.leftAxisVisible  = true;
+        scale.rightAxisVisible = false;
+        ind.bindToVerticalScale(scale);
+      }
+
       chartRef.current.addIndicators(ind);
       compositeIndRef.current = ind;
       placeNowMarker(ind, '#8b949e');
@@ -368,7 +374,6 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       setCorrelations({ inSampleCorr: inSample, visibleCorr: visible });
     } else {
       compositeIndRef.current = null;
-      rawCompositeRef.current = null;
       setComposite([]);
       setCorrelations({ inSampleCorr: NaN, visibleCorr: NaN });
     }
@@ -416,50 +421,6 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     chartRef.current.refreshAsync(true);
     return () => { cancelled = true; };
   }, [selected, paneSelected, showComposite, showCRSI, compositeMode, bars, closes, apiKey]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ─── Overlay-mode auto-fit: remap composite when visible range changes ───
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-    if (compositeMode !== 'overlay') return;
-    const FC = window.FintaChart;
-
-    // CRITICAL PERF NOTE: each remap calls chart.refreshIndicators(), which
-    // recalculates EVERY indicator on the chart (composite + CRSI + any built-in
-    // the user added like Stoch RSI). With Stoch RSI on 12k bars that's slow.
-    // We debounce by 300ms — a continuous scroll fires the heavy refresh only
-    // once at the end, not 60×/sec during the drag.
-    const doRemap = () => {
-      const ind = compositeIndRef.current;
-      const raw = rawCompositeRef.current;
-      if (!ind || !raw || closes.length === 0) return;
-      const first = Math.max(0, Math.floor(chart.firstVisibleRecord ?? 0));
-      const last  = Math.min(closes.length - 1, Math.ceil(chart.lastVisibleRecord ?? closes.length - 1));
-      const visible = closes.slice(first, last + 1).filter(Number.isFinite);
-      if (visible.length < 5) return;
-      const next = mapCompositeToPriceRange(raw, visible, { fillFraction: 0.6 });
-      ind._composite = next;
-      chart.refreshIndicators();
-      chart.refreshAsync();
-    };
-
-    let timer = 0;
-    const remapDebounced = () => {
-      clearTimeout(timer);
-      timer = setTimeout(doRemap, 300);
-    };
-
-    chart.on(FC.ChartEvent.LAST_VISIBLE_RECORD_CHANGED,  remapDebounced);
-    chart.on(FC.ChartEvent.FIRST_VISIBLE_RECORD_CHANGED, remapDebounced);
-    doRemap();   // initial alignment fires immediately, no debounce
-    return () => {
-      clearTimeout(timer);
-      try {
-        chart.off?.(FC.ChartEvent.LAST_VISIBLE_RECORD_CHANGED,  remapDebounced);
-        chart.off?.(FC.ChartEvent.FIRST_VISIBLE_RECORD_CHANGED, remapDebounced);
-      } catch (_) {}
-    };
-  }, [compositeMode, closes, selected, showComposite]);
 
   const sampleLabel = useMemo(() => {
     if (bars.length === 0) return '';
