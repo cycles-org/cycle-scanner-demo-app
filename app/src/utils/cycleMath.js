@@ -4,8 +4,8 @@
 //                  over all selected cycles j
 //
 // The composite is a pure sum of sine waves around zero — NO baseline added.
-// We render it on a "separate axis" by linearly mapping its value range into
-// the price range when handing it to the FintaChart indicator. See mapCompositeToPriceRange.
+// Overlay mode binds the indicator to a dedicated VerticalScale via
+// Indicator.bindToVerticalScale() (3.1.5+), so values are passed through raw.
 
 export function buildCompositeSeries(selectedCycles, totalBars) {
   const out = new Float64Array(totalBars);
@@ -18,45 +18,6 @@ export function buildCompositeSeries(selectedCycles, totalBars) {
       const angle = (2 * Math.PI * (i - minBarNum)) / length - Math.PI / 2;
       out[i] += amplitude * Math.sin(angle);
     }
-  }
-  return out;
-}
-
-// Map the composite series into the price's value range so it visually fills the
-// chart on a "shared" axis (poor man's separate axis — visually identical to
-// LWC's left-scale trick used in the .NET app).
-//
-// We use the *historical* price range as the target, then rescale. That keeps the
-// composite stable across zooms.
-export function mapCompositeToPriceRange(composite, prices, opts = {}) {
-  const fillFraction = opts.fillFraction ?? 0.85;   // composite fills 85% of price range
-  let pmin = Infinity, pmax = -Infinity;
-  for (const p of prices) {
-    if (Number.isFinite(p)) {
-      if (p < pmin) pmin = p;
-      if (p > pmax) pmax = p;
-    }
-  }
-  let cmin = Infinity, cmax = -Infinity;
-  for (const v of composite) {
-    if (Number.isFinite(v)) {
-      if (v < cmin) cmin = v;
-      if (v > cmax) cmax = v;
-    }
-  }
-  if (!Number.isFinite(pmin) || !Number.isFinite(cmin) || cmax === cmin) {
-    return new Array(composite.length).fill(NaN);
-  }
-  const priceMid = (pmin + pmax) / 2;
-  const priceHalfRange = ((pmax - pmin) / 2) * fillFraction;
-  const compMid = (cmin + cmax) / 2;
-  const compHalfRange = (cmax - cmin) / 2;
-  const scale = priceHalfRange / compHalfRange;
-
-  const out = new Array(composite.length);
-  for (let i = 0; i < composite.length; i += 1) {
-    const v = composite[i];
-    out[i] = Number.isFinite(v) ? priceMid + (v - compMid) * scale : NaN;
   }
   return out;
 }
