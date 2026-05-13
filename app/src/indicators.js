@@ -1,17 +1,15 @@
 // Custom FintaChart indicators that play back precomputed series:
-//   - CompositeCyclePane:    sum-of-sines around 0, in its own pane (isOverlay = false)
-//   - CompositeCycleOverlay: same, but mapped onto the price pane (isOverlay = true)
-//   - SingleCycleIndicator:  one sine wave for an individually-paned cycle
-//   - CrsiIndicator:         CRSI line + dynamic upper/lower bands, in its own pane
+//   - CompositeCycle:        sum-of-sines around 0. Pane vs. overlay placement is
+//                            chosen at add time via Pane.addIndicator() /
+//                            addIndicatorInNewPane() (3.1.5+) — no two-class
+//                            workaround needed.
+//   - SingleCycleIndicator:  one sine wave for an individually-paned cycle.
+//   - CrsiIndicator:         CRSI line + dynamic upper/lower bands, in its own pane.
 //
 // Every class declares standard FintaChart parameters via direct class accessors
-// (`get / set` paired with `parameterValue` / `updateParameter`). Without at least
-// one declared parameter, FintaChart's gear-icon settings dialog crashes with
-// `Cannot read properties of null (reading 'appendChild')` while building rows.
-//
-// Class-level accessors (NOT Object.defineProperties on a prototype after
-// construction) are required — that's the pattern the shipped custom-indicator.html
-// example uses, and it's the only way the parameter system actually picks them up.
+// (`get / set` paired with `parameterValue` / `updateParameter`). The gear-icon
+// settings dialog crash (#24) was fixed in FintaChart 3.1.5, so we no longer
+// need `allowSettingsDialog = false`.
 
 const FC = () => window.FintaChart;
 
@@ -22,9 +20,15 @@ export function getIndicatorClasses() {
   const F = FC();
   const P = F.IndicatorParam;
 
-  // ─── CompositeCyclePane (isOverlay = false) ───────────────────────────────
-  class CompositeCyclePane extends F.Indicator {
-    static get type() { return 'CompositeCyclePane'; }
+  // ─── CompositeCycle ───────────────────────────────────────────────────────
+  // Single class — used for both "own pane" and "overlay with own y-axis" mode.
+  // The `isOverlay` value here is only the default; the actual pane choice is
+  // made at add time via chart.primaryPane.addIndicator(ind) (overlay) or
+  // chart.addIndicatorInNewPane(ind) (own pane), and Pane.addIndicator()
+  // pins the pane before the add lifecycle so it wins over isOverlay.
+  // See FintaChart docs/api/custom-indicators.md "Which pane?" (3.1.6+).
+  class CompositeCycle extends F.Indicator {
+    static get type() { return 'CompositeCycle'; }
 
     get inputDataRowName() { return this.parameterValue(P.SOURCE); }
     set inputDataRowName(v) { this.updateParameter(P.SOURCE, v); }
@@ -40,56 +44,11 @@ export function getIndicatorClasses() {
 
     onResetDefaults() {
       this.name = 'Composite';
-      this.isOverlay = false;
+      this.isOverlay = false;   // default; Pane.addIndicator() overrides at add time
       this.inputDataRowName = F.DataRowsMarker.CLOSE;
       this.lineColor = '#ec4899';
       this.lineWidth = 2;
       this.period = 1;
-      // Suppress the gear-icon settings dialog: FintaChart's dialog template
-      // references plot-style controls that crash for our precomputed-series
-      // indicators (`appendChild(null)` from inside the bundle). Until that's
-      // fixed upstream, we expose the params via the indicator legend label
-      // only — color/width/period still show as e.g. "Composite (Close, 1)".
-      this.allowSettingsDialog = false;
-      this.addPlot(this.lineColor, 'Composite');
-    }
-
-    onInputTick() {
-      const i = this.currentBar;
-      const v = this._composite && this._composite[i];
-      this.values.get('Composite').set(Number.isFinite(v) ? v : NaN);
-    }
-  }
-
-  // ─── CompositeCycleOverlay (isOverlay = true) ─────────────────────────────
-  class CompositeCycleOverlay extends F.Indicator {
-    static get type() { return 'CompositeCycleOverlay'; }
-
-    get inputDataRowName() { return this.parameterValue(P.SOURCE); }
-    set inputDataRowName(v) { this.updateParameter(P.SOURCE, v); }
-
-    get lineColor()  { return this.parameterValue(P.LINE_COLOR); }
-    set lineColor(v) { this.updateParameter(P.LINE_COLOR, v); }
-
-    get lineWidth()  { return this.parameterValue(P.LINE_WIDTH); }
-    set lineWidth(v) { this.updateParameter(P.LINE_WIDTH, v); }
-
-    get period()  { return this.parameterValue(P.PERIODS); }
-    set period(v) { this.updateParameter(P.PERIODS, v); }
-
-    onResetDefaults() {
-      this.name = 'Composite';
-      this.isOverlay = true;
-      this.inputDataRowName = F.DataRowsMarker.CLOSE;
-      this.lineColor = '#ec4899';
-      this.lineWidth = 2;
-      this.period = 1;
-      // Suppress the gear-icon settings dialog: FintaChart's dialog template
-      // references plot-style controls that crash for our precomputed-series
-      // indicators (`appendChild(null)` from inside the bundle). Until that's
-      // fixed upstream, we expose the params via the indicator legend label
-      // only — color/width/period still show as e.g. "Composite (Close, 1)".
-      this.allowSettingsDialog = false;
       this.addPlot(this.lineColor, 'Composite');
     }
 
@@ -129,7 +88,6 @@ export function getIndicatorClasses() {
       this.lineColor = SingleCycleIndicator._nextColor;
       this.lineWidth = 2;
       this.period = L > 0 ? L : 1;
-      this.allowSettingsDialog = false;
       this.addPlot(this.lineColor, 'Sine');
     }
 
@@ -167,7 +125,6 @@ export function getIndicatorClasses() {
       this.lineColor = this.plotTheme?.lines?.[0]?.strokeColor || '#e6edf3';
       this.lineWidth = 2;
       this.period = 14;
-      this.allowSettingsDialog = false;
       this.addPlot(this.lineColor, 'CRSI');
       this.addPlot('#f85149', 'UB');
       this.addPlot('#3fb950', 'LB');
@@ -186,14 +143,10 @@ export function getIndicatorClasses() {
     }
   }
 
-  const COMPOSITE_TYPES = new Set(['CompositeCyclePane', 'CompositeCycleOverlay']);
-
   _classesCached = {
-    CompositeCyclePane,
-    CompositeCycleOverlay,
+    CompositeCycle,
     CrsiIndicator,
     SingleCycleIndicator,
-    COMPOSITE_TYPES,
   };
   return _classesCached;
 }

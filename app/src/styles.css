@@ -248,33 +248,32 @@ body {
 .cycles-table tr.is-dominant.is-selected td { background: var(--bg-row-sel); }
 
 /* Prominent checkbox — explicit visual control over the composite.
-   FintaChart's bundled CSS aggressively styles all `[type=checkbox]` (sets
-   opacity:0 and reassigns border via `.thmFintatechDarkTheme [type=checkbox]`),
-   so we use `!important` on the few properties that conflict. */
+   FintaChart 3.1.5+ scoped its `[type=checkbox]` rules to its own DOM
+   (`.tcdComponentsContainer`, `.tcdDialog`, `.tcdRootContainer`), so the
+   host-page leak that previously required `!important` overrides is gone.
+   Plain CSS is sufficient on 3.1.5+. */
 .cycles-table input.select-cycle {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  width: 20px !important;
-  height: 20px !important;
-  margin: 0 !important;
-  border: 2px solid var(--accent) !important;
-  border-radius: 4px !important;
-  background: var(--bg-app) !important;
-  cursor: pointer !important;
-  position: relative !important;
-  opacity: 1 !important;            /* defeat FintaChart's [type=checkbox] { opacity: 0 } */
-  z-index: 1 !important;            /* defeat FintaChart's z-index: -1 */
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: var(--bg-app);
+  cursor: pointer;
+  position: relative;
   transition: all 120ms;
   box-shadow: 0 0 0 1px var(--bg-panel) inset;
   vertical-align: middle;
 }
 .cycles-table input.select-cycle:hover {
-  border-color: var(--accent) !important;
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.25);
 }
 .cycles-table input.select-cycle:checked {
-  background: var(--accent) !important;
-  border-color: var(--accent) !important;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .cycles-table input.select-cycle:checked::after {
   content: '';
@@ -295,15 +294,15 @@ body {
 
 /* Second checkbox — distinct purple accent so users see it's a different action. */
 .cycles-table input.select-cycle.pane-cycle {
-  border-color: #a78bfa !important;
+  border-color: #a78bfa;
 }
 .cycles-table input.select-cycle.pane-cycle:hover {
-  border-color: #a78bfa !important;
+  border-color: #a78bfa;
   box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.30);
 }
 .cycles-table input.select-cycle.pane-cycle:checked {
-  background: #a78bfa !important;
-  border-color: #a78bfa !important;
+  background: #a78bfa;
+  border-color: #a78bfa;
 }
 
 .cycles-toolbar button {

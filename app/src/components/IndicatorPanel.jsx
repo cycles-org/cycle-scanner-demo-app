@@ -41,7 +41,7 @@ export default function IndicatorPanel() {
           <span>price overlay</span>
         </label>
       </div>
-      <div className="sub-hint">use these radios to move the composite — the chart's right-click menu shows "Move pane" items in 3.1.4 but they remain disabled for indicators with precomputed series</div>
+      <div className="sub-hint">overlay places the composite on the price pane with its own auto-scaled y-axis (left); own-pane stacks it below</div>
       <label className="toggle">
         <input type="checkbox" checked={showCRSI} onChange={(e) => setShowCRSI(e.target.checked)} />
         <span>Cyclic RSI</span>
