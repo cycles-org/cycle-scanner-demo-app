@@ -3,7 +3,7 @@ import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'reac
 import LoginScreen from './components/LoginScreen.jsx';
 import ThemeToggle from './components/ThemeToggle.jsx';
 import SymbolSearch from './SymbolSearch.jsx';
-import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError } from './api.js';
+import { loadBars, cycleScanner, crsi, detrendTrend, isCloseOnly, QuotaError, searchSymbols } from './api.js';
 import { CycleToolsDatafeed } from './CycleToolsDatafeed.js';
 import { getIndicatorClasses } from './indicators.js';
 import {
@@ -119,6 +119,100 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     const datafeed = new CycleToolsDatafeed();
     datafeedRef.current = datafeed;
 
+    // ── Native toolbar search modal: register BEFORE `new FC.Chart` ──────
+    // Per the maintainers' PR #1 against this repo: 3.1.4+ has a
+    // timing-dependent race where `FC.Instrument.filter` installed AFTER
+    // chart construction is sometimes never invoked by the toolbar's
+    // InstrumentSearch (the modal can snapshot/bind the reference inside
+    // the constructor). Registering up-front closes the race window for
+    // free — by the time anything inside `new FC.Chart` can capture the
+    // reference, our override is already in place. This matches the
+    // pattern in `examples/html/15-instrument-search/`, which sets
+    // `Instrument.filter` at module top-level before constructing the
+    // chart at the bottom of the script.
+    //
+    // `chart.exchanges` is per-instance (only meaningful after the chart
+    // exists) and `INSTRUMENT_CHANGED` likewise; both stay below.
+
+    let lastResults = [];
+
+    // cycle-tools-api SearchSymbols returns PascalCase OR camelCase fields
+    // depending on the dataset (api.js patches the same way in
+    // getDatasetSeries). Normalise so FintaChart's id-based identity check
+    // and our pipeline's symbolId lookup both work.
+    //
+    // The toolbar modal renders rows as `{symbol} {exchange} — {company}`
+    // and matches the user's query against `company` too. Our REST returns
+    // the full name in `shortName` (e.g. "Apple Inc"), so we map that into
+    // `company` for the modal — otherwise the dropdown only shows the
+    // symbol and "Apple" / "Microsoft" / "Bitcoin" never display.
+    const normalise = (r) => {
+      const sid = r.symbolId ?? r.SymbolId ?? r.id ?? r.Id;
+      return {
+        ...r,
+        id:       String(sid),
+        symbolId: sid,
+        symbol:   r.symbol   ?? r.Symbol   ?? '',
+        exchange: r.exchange ?? r.Exchange ?? '',
+        company:  r.company  ?? r.Company  ?? r.shortName ?? r.ShortName
+                  ?? r.description ?? r.Description ?? '',
+        type:     r.type     ?? r.Type     ?? r.instrumentType ?? r.InstrumentType ?? '',
+        tickSize: r.tickSize ?? r.TickSize ?? 0.01,
+      };
+    };
+
+    // The toolbar modal's internal client-filter (InstrumentSearch's
+    // generateSearchResults + normalizeSymbolForSearch + searchTextPositions)
+    // only matches the user's query against `result.symbol` substring — NOT
+    // against `result.company`. So when a consumer's backend (like the
+    // cycle-tools-api) returns Apple-related results whose symbols are
+    // AAPL / 0R2V / 603020 / etc., typing "Apple" finds nothing — even
+    // though the company field clearly contains "Apple Inc".
+    //
+    // Workaround: in `filter`, AUGMENT the symbol with the company text
+    // so the modal's substring match passes. In `filterById` (called when
+    // the user picks a result), return the CLEAN symbol so the chart's
+    // toolbar label shows just the ticker after selection.
+    //
+    // We cache the clean version in `lastResults` so filterById can hand
+    // it back without re-hitting the API.
+    FC.Instrument.filter = async (query, filters, page, size) => {
+      try {
+        const raw = await searchSymbols(query ?? '', apiKey);
+        let clean = (raw ?? []).map(normalise);
+        if (Array.isArray(filters) && filters.length > 0) {
+          clean = clean.filter((i) => filters.includes(i.exchange));
+        }
+        if (typeof page === 'number' && typeof size === 'number') {
+          const start = Math.max(0, page - 1) * size;
+          clean = clean.slice(start, start + size);
+        }
+        lastResults = clean;
+        // Augment the symbol field for the modal's substring filter.
+        return clean.map((c) => ({
+          ...c,
+          symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
+        }));
+      } catch (e) {
+        console.error('[FC.Instrument.filter]', e);
+        return [];
+      }
+    };
+
+    FC.Instrument.filterById = async (id) => {
+      const hit = lastResults.find((i) => String(i.id) === String(id));
+      if (hit) return hit;          // CLEAN — un-augmented symbol
+      try {
+        const raw = await searchSymbols(String(id), apiKey);
+        const list = (raw ?? []).map(normalise);
+        const match = list.find((i) => String(i.id) === String(id));
+        return match ?? { id, symbol: '—', exchange: '', tickSize: 0.01 };
+      } catch (e) {
+        console.error('[FC.Instrument.filterById]', e);
+        return { id, symbol: '—', exchange: '', tickSize: 0.01 };
+      }
+    };
+
     // 3.1.2+: `new FintaChart.Chart({ container, ...config })` is the documented
     // primary entry point (matches the README quickstart). The `createChart` factory
     // is kept for backward-compat but the constructor form is canonical.
@@ -139,40 +233,27 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     });
     chartRef.current = chart;
 
-    // NOTE: 3.1.4's built-in toolbar search modal expects three overrides
-    // — `FintaChart.Instrument.filter`, `Instrument.filterById`, and
-    // `chart.exchanges()` — per `examples/html/15-instrument-search/`. We
-    // tried wiring them in this app and confirmed two issues that block
-    // the integration:
-    //
-    //   (a) Returning [] from `chart.exchanges()` crashes the modal with
-    //       `Failed to execute 'querySelector' on 'Element': ' > .active'
-    //       is not a valid selector` — the bundle builds a selector that
-    //       assumes a non-empty tabs container.
-    //   (b) Even with a non-empty list, when the user types a query the
-    //       modal does NOT call our overridden `Instrument.filter` (nor
-    //       any of `InstrumentSearch.prototype.{getInstruments,
-    //       getInstrumentById, generateSearchResults, loadData}`). The
-    //       integration path the modal actually uses isn't documented and
-    //       wasn't reachable via the static-method overrides.
-    //
-    // Both findings are flagged in our 3.1.4 feedback document. Until we
-    // (or the maintainers) work out the missing integration step, our
-    // custom `SymbolSearch.jsx` above the chart remains the canonical
-    // search UX. We keep an INSTRUMENT_CHANGED listener so that IF the
-    // toolbar modal ever does fire a pick (or any other in-chart route
-    // sets the instrument), we'll still route it through the existing
-    // pipeline — no harm in having the bridge.
-    const onInstrumentChanged = (e) => {
-      const next = e?.value;
-      if (!next?.id) return;
+    // Empty exchange tabs — search filters by query only. The bundled
+    // search modal handles `[]` cleanly in 3.1.5+ (earlier versions
+    // crashed with a `' > .active'` selector error).
+    chart.exchanges = () => [];
+
+    // INSTRUMENT_CHANGED fires both on toolbar modal picks and on
+    // programmatic `chart.instrument = …` writes in the pipeline.
+    // We read `chart.instrument` directly because the event payload
+    // shape isn't documented and differs across 3.1.x builds.
+    // Feedback-loop guard via id equality.
+    const onInstrumentChanged = () => {
+      const inst = chart.instrument;
+      if (!inst || inst.symbol === '—' || !inst.id) return;
       const cur = useScannerStore.getState().picked;
-      if (cur?.symbolId === next.id) return;     // already loaded — skip
+      const curId = cur && (cur.symbolId ?? cur.SymbolId);
+      if (curId != null && String(curId) === String(inst.id)) return;
       useScannerStore.getState().setPicked({
-        symbol: next.symbol,
-        symbolId: next.id,
-        shortName: next.company || next.symbol,
-        exchange: next.exchange || '',
+        ...inst,
+        symbolId: inst.symbolId ?? inst.id,
+        symbol:   inst.symbol,
+        exchange: inst.exchange ?? '',
       });
     };
     chart.on(FC.ChartEvent.INSTRUMENT_CHANGED, onInstrumentChanged);
@@ -370,9 +451,16 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
         ind.bindToVerticalScale(scale);
         chartRef.current.primaryPane.addIndicator(ind);
       } else {
-        // Own pane below price — explicit Pane.addIndicator route via
-        // a fresh pane (3.1.6+ chart.addIndicatorInNewPane() helper).
-        chartRef.current.addIndicatorInNewPane(ind);
+        // Own pane below price. NOTE: the 3.1.6-documented helper
+        // `chart.addIndicatorInNewPane(ind)` is buggy at runtime — it
+        // crashes inside `initPaneTitle` with
+        // `Cannot read properties of null (reading 'appendChild')`
+        // (verified empirically against `@fintatech/fintachart@3.1.6`).
+        // Fall back to the standard `chart.addIndicators(ind)` which
+        // uses `ind.isOverlay = false` (set in CompositeCycle's
+        // onResetDefaults) to place the indicator in a new pane — same
+        // result, no crash.
+        chartRef.current.addIndicators(ind);
       }
 
       compositeIndRef.current = ind;
