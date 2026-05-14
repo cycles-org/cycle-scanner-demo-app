@@ -59,7 +59,7 @@ body {
 
 .chart-pane    { background: var(--bg-app); position: relative; height: 100%; }
 .spectrum-pane { background: var(--bg-app); position: relative; height: 100%; }
-.right-pane    { background: var(--bg-app); display: grid; grid-template-rows: 1fr auto; height: 100%; min-height: 0; border-left: 1px solid var(--border); }
+.right-pane    { background: var(--bg-app); display: grid; grid-template-rows: 1fr; height: 100%; min-height: 0; border-left: 1px solid var(--border); }
 
 #chart-container { width: 100%; height: 100%; }
 
@@ -160,6 +160,17 @@ body {
 .header-chips .chip-sep { color: var(--text-dim); }
 .header-chips .muted { color: var(--text-muted); font-size: 11px; }
 .header-chips .sample-label { color: var(--text-muted); font-size: 11px; padding-left: 8px; border-left: 1px solid var(--border); margin-left: 4px; }
+/* Full datafeed symbol-ID for the loaded instrument (e.g. AAPL.US-D-1:FSC1).
+   Informational only — light grey + monospace so it reads as an "ID" without
+   competing visually with the chips before it or the date range after it. */
+.header-chips .symbol-id {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  margin-left: 4px;
+}
 
 .theme-toggle {
   background: var(--bg-app);
@@ -333,41 +344,148 @@ body {
   text-align: right;
 }
 
-/* ─── Indicator panel (right pane bottom) ─────────────────────────────── */
-.indicator-panel {
-  padding: 10px 12px;
+/* ─── FintaChart 3.1.6 dropdown-open patch ────────────────────────────────
+   FC ships a CSS rule `.drop > ul { transform: scaleY(0) }` for the closed
+   state of every toolbar dropdown (timeframe picker, chart-type picker,
+   etc.) and only opens it via `.drop:hover ul { transform: scaleY(1) }`.
+   Clicking the picker adds an `.active` class to the parent <li> but FC
+   ships NO corresponding open-state CSS rule — so the dropdown stays
+   collapsed via the `scaleY(0)` transform after the user's mouse moves
+   away, and click-only interaction (touch devices, anyone whose hover
+   target shifts due to layout) fails entirely. FC's JS also sets the
+   dropdown's inline `width: 0; height: 0` in the closed state, which
+   means even forcing the transform alone isn't enough — width/height
+   must be reset too.
+
+   Selectors chosen to match FC's own specificity (4 class selectors deep
+   under `.tcdRootContainer .tcdToolbar-top .tcdToolbarNav ...`) so the
+   rule wins the cascade without needing `!important` on the transform.
+   `!important` on width/height is required because those are set inline. */
+.tcdRootContainer .tcdToolbar-top .tcdToolbarNav .drop.active > ul,
+.tcdRootContainer .tcdToolbar-top-left .tcdToolbarNav .drop.active > ul,
+.tcdRootContainer .tcdToolbar-top-right .tcdToolbarNav .drop.active > ul {
+  transform: scaleY(1);
+  width: auto !important;
+  height: auto !important;
+}
+
+/* ─── Indicator toggle buttons (toolbar) ─────────────────────────────────
+   Mounted via React portal INTO FintaChart's own toolbar (the <li> with
+   class `ind-toolbar-slot` that App.jsx appends to ul.tcdToolbarNavTop).
+   A split-button pattern for Composite (main click = on/off, caret =
+   placement popover) plus a plain toggle for Cyclic RSI. */
+
+/* The injected <li>: reset FintaChart's default list-item styling and let
+   our content sit comfortably next to native toolbar buttons. */
+li.ind-toolbar-slot {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  margin: 0;
+}
+
+.ind-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ind-btn-split {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.ind-btn {
+  background: var(--bg-app);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  transition: background 100ms, color 100ms, border-color 100ms;
+}
+.ind-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
+.ind-btn.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.ind-btn.is-on:hover { filter: brightness(1.08); }
+
+/* Icon-only buttons — square, fixed-size, content centered.
+   Sized to roughly match the surrounding FintaChart toolbar buttons. */
+.ind-btn.ind-btn-icon {
+  width: 26px; height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ind-btn.ind-btn-icon svg { display: block; }
+
+/* Split-button glue — main + caret share a seam */
+.ind-btn-split .ind-btn-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ind-btn-split .ind-btn-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding: 0 4px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Placement popover (Composite split-button) — portaled to document.body
+   with position:fixed (set inline by JSX from getBoundingClientRect). This
+   escapes FintaChart's `tcdToolbar-scroll-wrapper { overflow: hidden }`
+   which clips anything anchored under a toolbar button, regardless of
+   z-index. The high z-index (100001) is still required because FintaChart's
+   own toolbars/dialogs sit in the high-5-digit z-index range. */
+.ind-btn-popover {
+  min-width: 220px;
+  max-width: 280px;
   background: var(--bg-panel);
-  border-top: 1px solid var(--border);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  z-index: 100001;
 }
-.indicator-panel .toggle {
-  display: flex; align-items: center; gap: 8px; cursor: pointer;
+.ind-btn-popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.ind-btn-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
   user-select: none;
 }
-.indicator-panel .toggle input { cursor: pointer; }
-.indicator-panel .sub-row {
-  display: flex; align-items: center; gap: 10px;
-  font-size: 11px; padding-left: 22px;
-  transition: opacity 120ms;
-}
-.indicator-panel .sub-row .sub-label { color: var(--text-muted); }
-.indicator-panel .sub-hint {
+.ind-btn-radio input { margin: 0; cursor: pointer; }
+.ind-btn-popover-hint {
   font-size: 10px;
   color: var(--text-dim);
-  padding-left: 22px;
   font-style: italic;
-  line-height: 1.3;
-}
-.indicator-panel .radio { display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
-.indicator-panel .radio input { cursor: pointer; margin: 0; }
-.indicator-panel .slider-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.indicator-panel .slider-row input[type="range"] { flex: 1; }
-.indicator-panel .slider-row .value {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  width: 40px; text-align: right;
-  color: var(--accent);
+  line-height: 1.4;
+  margin-top: 2px;
 }
 
 /* ─── Spectrum pane ───────────────────────────────────────────────────── */
@@ -488,3 +606,151 @@ body {
   color: var(--text-dim);
   line-height: 1.5;
 }
+
+/* ─── Settings (gear button + modal) ──────────────────────────────────── */
+.settings-btn {
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 30px; height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.settings-btn:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: settings-fade-in 120ms ease-out;
+}
+@keyframes settings-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.settings-dialog {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-close {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.settings-close:hover { background: var(--bg-hover); color: var(--text); }
+
+.settings-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-field {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: center;
+}
+.settings-field label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.settings-field input {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.25);
+}
+.settings-hint {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.settings-range {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  gap: 8px;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+}
+.settings-reset,
+.settings-cancel,
+.settings-save {
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-app);
+  color: var(--text);
+}
+.settings-reset:hover,
+.settings-cancel:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+.settings-reset { color: var(--text-muted); }
+.settings-save {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.settings-save:hover { filter: brightness(1.1); }
+

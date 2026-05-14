@@ -1,13 +1,22 @@
 // Cycle-math primitives matching the .NET CycleScanner2 reference implementation.
 //
-//   composite[i] = Σ amp_j · sin(2π · (i − minBarNum_j) / length_j − π/2)
+//   composite[i] = Σ amp_j · sin(2π · ((i - offset) − minBarNum_j) / length_j − π/2)
 //                  over all selected cycles j
 //
 // The composite is a pure sum of sine waves around zero — NO baseline added.
 // We render it on a "separate axis" by linearly mapping its value range into
 // the price range when handing it to the FintaChart indicator. See mapCompositeToPriceRange.
-
-export function buildCompositeSeries(selectedCycles, totalBars) {
+//
+// `offset` (optional, default 0) — the original cycle scan was anchored at
+// bar 0 of the analysis window. After lazy-loading older bars to the left of
+// that window, those older bars sit at NEGATIVE indices in the scan's frame.
+// Passing `offset = frontPadCount` lets the output cover [-frontPad, totalBars-frontPad-1]
+// in the scan's frame while filling positions [0, totalBars-1] of the output
+// array (which aligns with the chart's actual bar coordinates after lazy-load).
+// Sine math is well-defined at negative indices — same parameters (length,
+// amplitude, minBarNum) extrapolated backward — so the cycle line just keeps
+// going, no rescan needed.
+export function buildCompositeSeries(selectedCycles, totalBars, offset = 0) {
   const out = new Float64Array(totalBars);
   for (const c of selectedCycles) {
     const length = c.cycleLength;
@@ -15,7 +24,8 @@ export function buildCompositeSeries(selectedCycles, totalBars) {
     const minBarNum = c.minBarNum ?? 0;
     if (!Number.isFinite(length) || length <= 0 || !Number.isFinite(amplitude)) continue;
     for (let i = 0; i < totalBars; i += 1) {
-      const angle = (2 * Math.PI * (i - minBarNum)) / length - Math.PI / 2;
+      const t = i - offset;                    // index in the scan's original frame
+      const angle = (2 * Math.PI * (t - minBarNum)) / length - Math.PI / 2;
       out[i] += amplitude * Math.sin(angle);
     }
   }
@@ -130,17 +140,32 @@ export function filterAndSortPeaks(peaks, dataLength) {
 //   - Smallest selected cycle in 70..200 range
 //   - If a selected cycle ≥ 200, use cycleLength/2 (clamped via Math.min)
 //   - If no cycle in range, use the longest selected cycle
+// CRSI period = half the LARGEST selected cycle from the spectrum list,
+// rounded. No range clamp — the user wants the period to track the actual
+// dominant cycle the trader selected, not be bounded to a fixed window.
+//
+// Note: this deliberately differs from the cycle-tools-api's recommended
+// "half of dominant cycle, clamped [5,50]" (endpoints.md §14). The product
+// decision here is that the user picks the dominant cycle explicitly via
+// the spectrum table, so we trust that selection literally — if they pick
+// a 600-bar cycle, length=300 it is.
+//
+// Bands implication: when length > dataLength/3 (≈283 for an 850-bar
+// lookback), the API's `ub`/`lb` arrays come back all-NaN — the `crsi`
+// line still plots correctly but the over/oversold bands disappear. That's
+// a natural consequence of asking for a longer period than the bands can
+// support and is preferable to silently clipping the user's choice.
+//
+// Safety floor: App.jsx still guards `len < 5` (the REST endpoint won't
+// produce useful output below that). With cycle-scanner defaults of
+// minCycleLength=15 the smallest result is 8, so the floor only matters
+// if a future change lets the scanner return cycles below 10.
 export function autoCrsiLength(selectedCycles) {
   if (!selectedCycles || selectedCycles.length === 0) return 0;
-  let candidate = Infinity;
-  for (const c of selectedCycles) {
-    const L = c.cycleLength;
-    if (L > 70 && L < 200) candidate = Math.min(L, candidate);
-    else if (L >= 200) candidate = Math.min(L / 2, candidate);
-  }
-  if (!Number.isFinite(candidate)) {
-    // No cycle in 70+ range — use longest selected.
-    candidate = selectedCycles.reduce((m, c) => Math.max(m, c.cycleLength), 0);
-  }
-  return Math.round(candidate);
+  const largest = selectedCycles.reduce(
+    (m, c) => (Number.isFinite(c?.cycleLength) ? Math.max(m, c.cycleLength) : m),
+    0,
+  );
+  if (largest <= 0) return 0;
+  return Math.round(largest / 2);
 }

@@ -65,12 +65,38 @@ export async function waitUntilUpdateCompleted(trackingId, apiKey) {
   });
 }
 
-export async function getDatasetSeries(symbolId, apiKey, { count = 800 } = {}) {
+// Format a Date as `yyyy-MM-dd HH:mm:ssZ` for the GetDatasetSeries `from`/`to`
+// params. The endpoint accepts this format per the cycle-tools-api skill
+// (endpoints.md §9). Using ISO 8601 with a `T` separator also works in practice
+// but the docs' format is what we ship.
+function fmtApiDate(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} `
+       + `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}Z`;
+}
+
+export async function getDatasetSeries(
+  symbolId,
+  apiKey,
+  { count = 800, from = null, to = null } = {},
+) {
   // The API returns close-only series for many datasets:
   //   { close, date: "1980-12-12T00:00:00", dateUnix: 345427200 }
   // Some datasets include OHLC fields. We handle both.
+  //
+  // Params per cycle-tools-api/references/endpoints.md §9:
+  //   - `maxbars` (NOT `count`) is the documented bar-limit param. Server
+  //     "trims to most recent N bars" — so when paired with `to`, you get
+  //     the N bars whose date <= `to`.
+  //   - `from` / `to` accept `yyyy-MM-dd HH:mm:ssZ`. Used for lazy-load paging.
+  //   - Both names sent for forward-compat (`count` ignored on current server,
+  //     `maxbars` is the contract).
+  const params = { tickerid: symbolId, maxbars: count, count };
+  if (from instanceof Date) params.from = fmtApiDate(from);
+  if (to   instanceof Date) params.to   = fmtApiDate(to);
+
   const bars = await call('GET', '/api/data/GetDatasetSeries', {
-    params: { tickerid: symbolId, count },
+    params,
     apiKey,
   });
   return bars.map((b) => {
@@ -96,12 +122,32 @@ export function isCloseOnly(bars) {
   return bars.every((b) => b.open === b.close && b.high === b.close && b.low === b.close);
 }
 
-export async function loadBars(symbolId, apiKey) {
+export async function loadBars(symbolId, apiKey, { count = 800 } = {}) {
+  // Initial-load entry point. Ensures the server-side dataset is current
+  // (UpdateDataset trigger), waits for completion if needed, then fetches
+  // the most-recent `count` bars.
+  //
+  // The cycle scanner's recommended lookback is 850 bars (cycle-tools-api
+  // skill, endpoints.md §6) — pass `count` from settings to honor that.
   const ensure = await ensureCompleteDataset(symbolId, apiKey);
   if (ensure && ensure.isComplete === false && ensure.trackingId) {
     await waitUntilUpdateCompleted(ensure.trackingId, apiKey);
   }
-  return getDatasetSeries(symbolId, apiKey);
+  return getDatasetSeries(symbolId, apiKey, { count });
+}
+
+// Lazy-load entry point. Called when the chart fires a `kind: 'moreBars'`
+// request — the user scrolled past the currently-loaded historical range.
+// Fetches `count` bars whose date is strictly older than `endDate`.
+//
+// NOTE: `endDate` is the date of the oldest bar already on the chart. We
+// subtract 1 second so the server doesn't return that same bar again.
+export async function loadOlderBars(symbolId, apiKey, endDate, count = 500) {
+  const cap = endDate instanceof Date
+    ? new Date(endDate.getTime() - 1000)
+    : null;
+  if (!cap) return [];
+  return getDatasetSeries(symbolId, apiKey, { count, to: cap });
 }
 
 export async function cycleScanner(closes, apiKey, opts = {}) {
@@ -122,9 +168,21 @@ export async function cycleScanner(closes, apiKey, opts = {}) {
   });
 }
 
-export async function crsi(closes, cycleLength, apiKey) {
+// Cyclic Smooth RSI — POST /api/DSP/CRSI per cycle-tools-api/endpoints.md §14.
+// The query param name is `length` (NOT `cycleLength` — we had it wrong from
+// 3.1.x onward; the server silently ignored the unknown name and fell back
+// to the default `length=30`, so every call returned identical data).
+//
+// Recommended `length` value is **half the dominant cycle length, clamped to
+// [5, 50]** — CRSI is a momentum oscillator that should detect turns *within*
+// the cycle, not track the full period.
+//
+// Bands gotcha: ub/lb come back all-NaN if `length > dataLength / 3` (they
+// need roughly 3 full repetitions to compute). The `crsi` array itself stays
+// valid even when bands are NaN.
+export async function crsi(closes, length, apiKey) {
   return call('POST', '/api/DSP/CRSI', {
-    params: { cycleLength: Math.round(cycleLength) },
+    params: { length: Math.round(length) },
     body: closes,
     apiKey,
   });

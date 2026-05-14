@@ -22,7 +22,7 @@ export const useScannerStore = create((set, get) => ({
   showComposite: true,
   showCRSI: false,
   compositeMode: 'pane',         // 'pane' (own auto-scaled pane) | 'overlay' (mapped onto price)
-  projectionBars: 300,
+  // projectionBars now lives in useSettingsStore (persistent across reloads).
 
   // ─── Derived ─────────────────────────────────────────────────────────────
   composite: [],                 // mapped to price range, length = bars.length + projection
@@ -83,7 +83,7 @@ export const useScannerStore = create((set, get) => ({
   setShowComposite: (v) => set({ showComposite: v }),
   setShowCRSI: (v) => set({ showCRSI: v }),
   setCompositeMode: (m) => set({ compositeMode: m === 'overlay' ? 'overlay' : 'pane' }),
-  setProjectionBars: (n) => set({ projectionBars: Math.max(0, Math.min(500, n | 0)) }),
+  // setProjectionBars moved to useSettingsStore (persistent across reloads).
 
   reset: () =>
     set({

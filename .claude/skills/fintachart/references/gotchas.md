@@ -358,6 +358,27 @@ Workarounds:
 - Debounce `refreshIndicators()` calls to fire only when scroll/zoom **settles** (e.g. 300 ms after last event), not during the drag.
 - Cache the visible range; skip the refresh if the range hasn't changed meaningfully.
 
+### `refreshAsync(true)` does NOT recompute indicator values — call `refreshIndicators()` after mutating data
+
+Each `Indicator` keeps its plotted output in an internal **values series** (the `this.values.get('PlotName')` `DataRows`-like buffer that `onInputTick(currentBar)` writes into). The values series is cached **per bar position** and FintaChart only calls `onInputTick` for *newly inserted bars*. When you mutate the underlying data array (e.g. NaN-prepend after a lazy-load, or any "bring your own data" rewrite), the cached values for the existing bars stay stale — they were computed against the *old* array and now point at the wrong positions.
+
+`chart.refreshAsync(true)` only redraws using the cached values; it does **not** invalidate them. The line plots cleanly, but on the wrong bars: composite/cycle values land on the older lazy-loaded bars (where they should be NaN) and the projection-range bars come up empty (where they should hold values). The bug is invisible on initial load and only surfaces after the user scrolls.
+
+Diagnostic: `_composite[i]` and `ind.values.get('Composite').value(i)` should agree for every `i`. If they don't, the values series is stale.
+
+```js
+// Wrong — silently misaligned after first lazy-load
+ind._composite = padNaN(ind._composite, addedCount);
+chart.refreshAsync(true);
+
+// Right — forces values-series recompute against the freshly padded array
+ind._composite = padNaN(ind._composite, addedCount);
+chart.refreshIndicators();      // recomputes onInputTick for every bar
+chart.refreshAsync(true);       // schedule paint
+```
+
+Trade-off: `refreshIndicators()` recalcs every indicator on the chart (per the gotcha above), so debounce on rapid scroll. There is currently no per-indicator `invalidate()` API.
+
 ### `addPlot(color, name, FintaChart.PointPlot.Style.DOT)` doesn't actually create a PointPlot
 
 The 5-arg `addPlot(color, name, plotStyle?, width?, style?)` signature accepts `'dot'` as a `plotStyle` value, but the resulting render is a **full-height vertical tick line** (HistogramPlot-like), not a circular dot. Not what `PointPlot.Style.DOT` suggests.
@@ -396,9 +417,69 @@ const isPrimary = !request.instrument
 if (isPrimary) stopRealtime();   // only then
 ```
 
+### Toolbar dropdowns (timeframe, chart-type) only open via CSS `:hover`, never via click
+
+FintaChart 3.1.6 ships only **one** open-state rule for any of its toolbar `.drop > ul` dropdowns:
+
+```css
+.drop:hover > ul { transform: scaleY(1) }
+```
+
+The default state is `transform: scaleY(0)`. When the user *clicks* a picker, FC's JS adds `.active` and `.activated` classes to the parent `<li>` — but there is **no CSS rule that responds to those classes**, so the click alone never opens the dropdown. The dropdown only ever appears while the cursor remains over the picker. The moment the cursor moves off, `:hover` no longer matches and the dropdown collapses back to `scaleY(0)`.
+
+Real symptom (consumer-level): the dropdown looks like it opens on the first hover-then-click, the user picks a value, and on subsequent attempts they see nothing — because their cursor is now elsewhere and `:hover` isn't matching, even though they clicked the picker. Worse, on touch devices `:hover` is fired only briefly (or not at all), making every dropdown essentially unusable.
+
+Additional twist: FC's JS sets the dropdown's inline `width: 0; height: 0` in the closed state. Forcing `transform: scaleY(1)` alone via CSS isn't enough — the inline width/height also have to be overridden.
+
+**Patch** (one CSS rule, no JS):
+
+```css
+/* Match FC's own selector specificity so we win the cascade without
+   needing !important on the transform; width/height must use !important
+   because FC sets them inline. */
+.tcdRootContainer .tcdToolbar-top .tcdToolbarNav .drop.active > ul,
+.tcdRootContainer .tcdToolbar-top-left .tcdToolbarNav .drop.active > ul,
+.tcdRootContainer .tcdToolbar-top-right .tcdToolbarNav .drop.active > ul {
+  transform: scaleY(1);
+  width: auto !important;
+  height: auto !important;
+}
+```
+
+After this, every toolbar dropdown (timeframe picker, chart-type picker, etc.) responds to `.active` (which FC's JS already toggles correctly on click). Verified end-to-end through 4 click cycles open → close → open → close.
+
+**Worth raising upstream:** ship an `.drop.active > ul` rule alongside the existing `:hover` rule, OR consolidate to a class-driven open state and drop the `:hover` dependency entirely. Touch-device users currently have no way to interact with any FC toolbar dropdown.
+
+### Timeframe picker doesn't translate to periodicity-encoded symbol IDs
+
+If your datafeed serves separate datasets per timeframe (FSC1, Yahoo Finance, and most "tickerID-baked" feeds work this way — `AAPL.US-D-1:FSC1` ≠ `AAPL.US-W-1:FSC1`), FintaChart's built-in `1d / 1w / 1h` toolbar picker won't switch which dataset you load. The picker only rewrites `chart.timeFrame` and re-issues `send()` with the *same* symbol ID — your datafeed serves the original dataset back, with wrong axis labels and stale cycle math.
+
+Fix: listen for `FC.ChartEvent.TIME_FRAME_CHANGED`, rewrite the symbol ID per your datafeed's encoding scheme, and trigger your normal symbol-change pipeline. Also cap `IChartConfig.supportedTimeFrames` to the variants your datafeed actually serves — otherwise the picker shows options that will always fail.
+
+**Full recipe with FSC1 + YFI examples + echo-guard pattern: `references/datafeed-contract.md` § *Timeframe pickers vs. periodicity-encoded symbol IDs*.**
+
+### No public API to add custom buttons to the chart toolbar
+
+The `Toolbar` class (`d.ts` line 6000) exposes a `container` getter and `getBottomToolbarRightSide()` helper, but every method that adds, removes, or arranges buttons is `private`. The toolbar markup is a fixed template fetched asynchronously from `htmldialogs/Toolbar.html`. There is no `chart.toolbar.addButton(config)` or "custom slot" API in 3.1.6.
+
+If you need app-specific controls (indicator toggles, layout pickers, custom modes) inside the chart frame next to the built-in buttons, the supported path is DOM injection into `chart.toolbar.container > ul.tcdToolbar.tcdToolbarNavTop`. Three subtle problems to solve: async template load, FintaChart's own re-renders wiping your slot, and popover clipping by `tcdToolbar-scroll-wrapper { overflow: hidden }`.
+
+**Full working recipe with React portal + `MutationObserver` + popover handling: `references/custom-toolbar-buttons.md`.**
+
+Two gotchas worth pulling out here for anyone debugging:
+- **Popovers anchored to injected buttons must portal to `document.body`** with `position: fixed` — z-index alone can't escape FintaChart's overflow-clipped scroll wrapper.
+- **DOM class names** (`tcdToolbar`, `tcdToolbarNavTop`, `tcdToolbar-btn-indicators`, `tcdToolbar-scroll-wrapper`) are not documented as stable contracts. A bundle minor version could rename them and break injection silently.
+
 ### Custom indicator data-length must align with the chart's bar count
 
 When passing a precomputed array via the "bring your own data" pattern, the array length should equal the chart's bar count (or the bar count + projection window). Excess values are ignored; missing values produce gaps. If your array is shorter than the loaded bar count, the indicator silently stops drawing partway through.
+
+**Lazy-load alignment** — when the chart fires `requestMoreBars()` and your datafeed prepends N older bars via `onCompleteRequest(request, olderBars)`:
+
+1. Pad your precomputed data array with N leading NaN so positional reads in `onInputTick(this.currentBar)` keep returning the right value for the right bar date. Preserve the original sequence type — a `Float64Array` stays a `Float64Array` (Float64Array values default to 0, not NaN, so explicitly fill the leading region with `NaN`).
+2. After padding, call `chart.refreshIndicators()` to recompute the cached values series (see "`refreshAsync(true)` does NOT recompute indicator values" above). Without this step the line lands on the wrong bars even though your array is now the right length.
+
+For indicators whose math doesn't extend into the projection window (e.g. CRSI / RSI / anything depending on real prices), pre-pad the trailing `MAX_PROJECTION_BARS` slots with NaN at creation time too — otherwise the indicator overflows into the projection range with stale-looking values or stops abruptly mid-chart on lazy-load.
 
 ### Useful d.ts grep targets
 

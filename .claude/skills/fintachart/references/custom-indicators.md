@@ -267,6 +267,162 @@ ind._crsi = crsiArr; ind._ub = ubArr; ind._lb = lbArr;
 chart.addIndicators(ind);
 ```
 
+## Server-computed parameter sync — making the settings dialog actually work
+
+A trap that's easy to fall into with the "bring your own data" pattern: your indicator class declares a `period` (or any other) parameter, FintaChart's gear-icon settings dialog auto-renders an editable input for it, the user changes the value — **and nothing happens**. The plotted line stays the same because `onInputTick` reads from your pre-fetched array, not from a parameter-driven calculation.
+
+The fix is two-sided:
+
+### 1. Indicator side — override `onParameterUpdated` and forward to a host callback
+
+The `Indicator` base class exposes `onParameterUpdated(changes: IIndicatorParameterChanges)` (d.ts:8757). It fires when any parameter is updated via `updateParameter` / `updateParameters` (which is what the settings-dialog inputs call). Override it, watch for the parameter you care about, and delegate to a host-supplied callback:
+
+```js
+class CRSI extends FintaChart.Indicator {
+  static get type() { return 'CustomCRSI'; }
+  // ... onResetDefaults, onInputTick as before ...
+
+  onParameterUpdated(changes) {
+    super.onParameterUpdated?.(changes);
+    if (!changes) return;
+    const periodChange = changes[FintaChart.IndicatorParam.PERIODS];
+    if (!periodChange) return;
+    const next = Number(periodChange.currentValue);
+    if (!Number.isFinite(next)) return;
+    if (typeof this._onPeriodChange === 'function') {
+      try { this._onPeriodChange(next); }
+      catch (e) { console.error('[param sync]', e); }
+    }
+  }
+}
+```
+
+**`changes` shape** (from d.ts:`IIndicatorParameterChanges`):
+```ts
+{ [paramName: string]: { prevValue: any; currentValue: any } }
+```
+The key is the parameter's string name — e.g. `FintaChart.IndicatorParam.PERIODS === 'periods'` (lowercase, verified at runtime).
+
+**Empirical 3.1.6 gotcha:** FintaChart writes the parameter value *before* invoking `onParameterUpdated`, so by the time you see `changes`, `prevValue` is usually equal to `currentValue` (the diff is computed against already-updated internal state). **Don't rely on `prevValue` for change detection** — just always forward to the callback if the parameter appears in the change set. Debounce on the host side instead.
+
+### 2. Host side — debounce + refetch + force values-cache invalidation
+
+After construction, attach a callback that does the actual refetch:
+
+```js
+const ind = new CRSI();
+ind._crsi = initialCrsi; ind._ub = initialUb; ind._lb = initialLb;
+
+let refetchTimer = null;
+ind._onPeriodChange = (newPeriod) => {
+  if (!Number.isFinite(newPeriod) || newPeriod < 5) return;
+  if (refetchTimer) clearTimeout(refetchTimer);
+  // 300 ms is enough to collapse the burst of `updateParameter` calls
+  // FintaChart's dialog emits while the user is typing in a number input.
+  refetchTimer = setTimeout(async () => {
+    if (!chart.indicators.includes(ind)) return;   // dropped during the wait
+    const r = await fetchSeriesFromServer(closes, newPeriod);
+    if (!chart.indicators.includes(ind)) return;
+    ind._crsi = r.crsi;
+    ind._ub   = r.ub;
+    ind._lb   = r.lb;
+    // CRITICAL: refreshAsync(true) only redraws using cached values.
+    // refreshIndicators() forces every indicator's onInputTick to re-run
+    // against the freshly replaced arrays — without it the line stays
+    // bound to the old values. See gotchas.md.
+    chart.refreshIndicators();
+    chart.refreshAsync(true);
+  }, 300);
+};
+
+chart.addIndicators(ind);
+```
+
+### 3. Sync the *displayed* parameter to the *actual* computation value
+
+If your initial fetch uses a derived value (e.g. half the dominant cycle, clamped) but `onResetDefaults` hardcodes `this.period = 14`, the dialog shows a value that doesn't match what's actually plotted. Symptom: indicator label reads `Cyclic RSI (Close, 14)` even though the data is from a length-50 fetch.
+
+Pre-set the value via a static "next" field that `onResetDefaults` reads — same pattern as the `_nextLength` / `_nextColor` indirection in the SingleCycleIndicator. FintaChart re-runs `onResetDefaults` during `addIndicators()`, so any post-construction `ind.period = N` assignments get clobbered.
+
+```js
+class CRSI extends FintaChart.Indicator {
+  static _nextPeriod = 14;
+  onResetDefaults() {
+    // ... other defaults ...
+    this.period = CRSI._nextPeriod || 14;
+  }
+}
+
+// Host:
+CRSI._nextPeriod = Math.round(autoCrsiLength);
+const ind = new CRSI();
+chart.addIndicators(ind);
+```
+
+## Extending an indicator over lazy-loaded older bars
+
+When the user scrolls left and the datafeed prepends N older bars via `requestMoreBars()` → `onCompleteRequest`, the indicator's data array needs to grow by N at the front to stay aligned with `currentBar`. Two options:
+
+1. **NaN-pad** with leading NaN — easy, but the indicator line abruptly stops at the boundary of the originally-loaded data. Users see the cycle / RSI / whatever disappear over the older bars even though those bars are now visible.
+2. **Extend with real values** — better UX, but the work depends on what kind of indicator it is.
+
+### Pure-math indicators (sine waves, regression lines, anything parameterized)
+
+Use an `offset` parameter in your value-generating function so it can compute at negative time indices (in the scan's original frame). Same parameters, just evaluated outside the original window.
+
+```js
+// Cycle reconstruction: composite[i] = Σ amp · sin(2π·((i-offset)-minBarNum)/length - π/2)
+export function buildCompositeSeries(selectedCycles, totalBars, offset = 0) {
+  const out = new Float64Array(totalBars);
+  for (const c of selectedCycles) {
+    for (let i = 0; i < totalBars; i++) {
+      const t = i - offset;                     // index in scan's original frame
+      const angle = (2 * Math.PI * (t - c.minBarNum)) / c.cycleLength - Math.PI / 2;
+      out[i] += c.amplitude * Math.sin(angle);
+    }
+  }
+  return out;
+}
+
+// On lazy-load completion:
+const total = chart.barDataRows().close.length;
+const intendedLen = analysisBars + projectionBars;
+const frontPad = Math.max(0, total - intendedLen);
+if (frontPad > 0) {
+  ind._composite = buildCompositeSeries(selectedCycles, total, frontPad);
+  chart.refreshIndicators();        // invalidate the values cache
+}
+```
+
+No rescan, no network call — pure CPU. The sine waves keep going backward indefinitely.
+
+### Server-computed indicators (CRSI, ML signals, anything causal)
+
+For causal indicators (each output bar depends only on prior input bars), re-fetch with the **full extended history**. Values at the original-window positions are mathematically unchanged because the same prior context is available; only the older bars get newly computed values.
+
+```js
+// On lazy-load completion (this runs alongside the sine-extension above):
+const rows = chart.barDataRows();
+const histLen = rows.close.length - projectionBars;
+const extendedCloses = new Array(histLen);
+for (let i = 0; i < histLen; i++) extendedCloses[i] = rows.close.value(i);
+
+// Version guard: if a period change or another lazy-load races with this
+// refetch, the later request's response wins.
+const version = ++crsiFetchVersion.current;
+const r = await fetchSeriesFromServer(extendedCloses, ind.period);
+if (version !== crsiFetchVersion.current) return;
+if (!chart.indicators.includes(ind)) return;
+
+ind._crsi = padTrailingNaN(r.crsi, projectionBars);
+ind._ub   = padTrailingNaN(r.ub,   projectionBars);
+ind._lb   = padTrailingNaN(r.lb,   projectionBars);
+chart.refreshIndicators();
+chart.refreshAsync(true);
+```
+
+**Refresh ordering** — the synchronous composite/single-cycle update can refresh immediately so the user sees cycles extend without waiting for the network. The async CRSI refetch refreshes again when it lands. Use a version counter to discard stale CRSI responses if the user keeps scrolling or changes the period mid-flight.
+
 ## Forward projection of a cycle (sine wave into the future)
 
 To draw a cycle/regression/forecast past the last real bar, append placeholder bars with `NaN` close and extend your precomputed series accordingly. The price line stops naturally at the boundary; your indicator continues drawing.

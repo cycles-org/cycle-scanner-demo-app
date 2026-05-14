@@ -156,6 +156,99 @@ chart.refreshAsync();
 
 Lower/upper-case distinction is load-bearing.
 
+## Timeframe pickers vs. periodicity-encoded symbol IDs
+
+If your datafeed encodes the periodicity *into the symbol ID itself* — common for any feed where the same instrument is served as separate datasets per timeframe — FintaChart's built-in timeframe picker doesn't do what users expect. The picker rewrites `chart.timeFrame` and re-issues `datafeed.send()`, but the request still carries your original symbol ID. Your datafeed serves the original dataset back, with wrong axis labels and stale cycle math.
+
+Common ID-encoding schemes (from the cycle-tools-api ecosystem):
+
+| Datafeed | Daily | Weekly | Hourly | Notes |
+|----------|-------|--------|--------|-------|
+| **FSC1** | `<sym>.<ex>-D-1:FSC1` | `<sym>.<ex>-W-1:FSC1` | `<sym>.<ex>-M-60:FSC1` | `M` is *minutes*, not "monthly"; interval encodes the bar size |
+| **YFI** (Yahoo Finance) | `<sym>-D:YFI` | `<sym>-W:YFI` | `<sym>-H:YFI` | No interval segment — periodicity is a single letter |
+| (yours) | ? | ? | ? | Add a branch to your rewriter for each datafeed you support |
+
+### Recipe — bridge the timeframe picker to your symbol-ID scheme
+
+```js
+// 1. Pure-string rewriter, one branch per supported datafeed.
+function rewriteSymbolIdTimeframe(symbolId, target /* 'daily'|'weekly'|'hourly' */) {
+  const colonIdx = symbolId.lastIndexOf(':');
+  if (colonIdx < 0) return null;
+  const head     = symbolId.slice(0, colonIdx);
+  const datafeed = symbolId.slice(colonIdx + 1);
+
+  if (datafeed === 'FSC1') {
+    const m = head.match(/^(.+)-([A-Z]+)-(\d+)$/);   // e.g. AAPL.US-D-1
+    if (!m) return null;
+    const map = { daily: ['D','1'], weekly: ['W','1'], hourly: ['M','60'] };
+    const [p, n] = map[target] || [];
+    return p ? `${m[1]}-${p}-${n}:${datafeed}` : null;
+  }
+  if (datafeed === 'YFI') {
+    const m = head.match(/^(.+)-([A-Z]+)$/);
+    if (!m) return null;
+    const map = { daily: 'D', weekly: 'W', hourly: 'H' };
+    return map[target] ? `${m[1]}-${map[target]}:${datafeed}` : null;
+  }
+  return null;   // unknown datafeed → caller restores previous timeframe
+}
+
+// Inverse: parse a symbol ID back to a target. Used to detect echoes from
+// our own programmatic `chart.timeFrame =` writes.
+function detectTimeframe(symbolId) { /* same parsing, return 'daily' | 'weekly' | 'hourly' | null */ }
+
+// 2. Map FintaChart's timeFrame to/from your target strings.
+function fcToTarget(tf)            { /* { interval:1, periodicity:'d' } → 'daily', etc. */ }
+function targetToFc(target, FC)    { /* inverse, using FC.Periodicity.DAY/WEEK/HOUR */ }
+
+// 3. Wire the listener in the chart bootstrap.
+chart.on(FC.ChartEvent.TIME_FRAME_CHANGED, () => {
+  const target = fcToTarget(chart.timeFrame);
+  if (!target) return;
+  const cur = currentPickedInstrument();              // from your store
+  if (!cur) return;
+  const currentTimeframe = detectTimeframe(cur.id);
+  if (currentTimeframe === target) return;            // echo guard — see below
+  const newId = rewriteSymbolIdTimeframe(cur.id, target);
+  if (!newId) {
+    // Unsupported variant for this datafeed — restore the picker and tell the user.
+    const restore = targetToFc(currentTimeframe, FC);
+    if (restore) chart.timeFrame = restore;
+    showError(`${target} not supported for ${cur.symbol} (${cur.datafeed})`);
+    return;
+  }
+  setPicked({ ...cur, id: newId, symbolId: newId });  // triggers your pipeline
+});
+
+// 4. After your pipeline loads bars + writes `chart.instrument`, also write
+//    `chart.timeFrame` so the toolbar reflects the loaded periodicity. The
+//    echo guard above (currentTimeframe === target → no-op) prevents this
+//    programmatic write from looping back through the rewriter.
+chart.instrument = nextInstrument;
+const detected = detectTimeframe(nextInstrument.id);
+const tf = targetToFc(detected, FC);
+if (tf) chart.timeFrame = tf;
+```
+
+**Three subtleties that bit during integration:**
+
+1. **`supportedTimeFrames`** — limit `IChartConfig.supportedTimeFrames` to the variants your datafeed actually serves (`['1 Hour', '1 Day', '1 Week']` for FSC1/YFI). Otherwise FintaChart shows `1m`, `5m`, `1mo`, `1y` etc. in the picker — all of which will fail the rewrite and snap back. Better to hide them.
+
+2. **Echo loop without the guard** — when your pipeline writes `chart.timeFrame` after loading a new symbol, `TIME_FRAME_CHANGED` fires and your listener runs. Without the `currentTimeframe === target` check, the listener would rewrite the (already-rewritten) ID and call `setPicked` again, triggering the pipeline twice. The guard makes the listener idempotent.
+
+3. **Toolbar stuck after symbol switch** — if the user previously clicked `1W` and then picks a new symbol from search (which returns daily by default), the toolbar stays on `1W` while the chart shows daily. Fix is step 4 above: every time the pipeline writes a new instrument, also align `chart.timeFrame` to the periodicity detected from the symbol ID.
+
+4. **Surface the resolved symbol-ID in the host UI for diagnostics.** When you can see `AAPL.US-D-1:FSC1` change to `AAPL.US-W-1:FSC1` as the user clicks the timeframe picker, you immediately know the rewriter is wired. Without that, a silent failure (rewrite returns null, picker reverts) looks identical to a successful no-op. One light-grey monospace chip in the header is enough:
+
+```jsx
+<span className="symbol-id" title="datafeed symbol ID">{picked.symbolId}</span>
+```
+
+Styled with `color: var(--text-dim); font-family: ui-monospace, ...; font-size: 11px` so it reads as a technical identifier without competing with the primary symbol label. Cheap to add, saves time the first time something breaks.
+
+The full working version of this is in `app/src/utils/symbolIdRewrite.js` + the `TIME_FRAME_CHANGED` handler in `app/src/App.jsx`.
+
 ## Lifecycle: when does the chart call `send()`?
 
 The chart issues a fresh request to the datafeed when:

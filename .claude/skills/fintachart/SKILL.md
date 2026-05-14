@@ -75,6 +75,7 @@ Browser-only canvas charting library for financial data. Single global namespace
 | Bootstrap, IChartConfig, methods, events, chart types | `references/chart-api.md` |
 | Custom datafeed (REST, WebSocket, in-memory) | `references/datafeed-contract.md` |
 | Custom indicators / overlays / projections | `references/custom-indicators.md` |
+| **Custom buttons inside FintaChart's own toolbar** | `references/custom-toolbar-buttons.md` |
 | Quirks, runtime-vs-docs gaps, common errors | `references/gotchas.md` |
 
 ## Install & bootstrap (HTML)

@@ -114,6 +114,13 @@ export function getIndicatorClasses() {
     get period()  { return this.parameterValue(P.PERIODS); }
     set period(v) { this.updateParameter(P.PERIODS, v); }
 
+    // Default seed period. The host (App.jsx) overrides this immediately
+    // after construction with the actual auto-derived cycle length used for
+    // the initial REST fetch, so the dialog never actually displays 14 in
+    // practice — it just needs a valid initial parameter slot for the
+    // settings-dialog UI to bind to.
+    static _nextPeriod = 14;
+
     onResetDefaults() {
       this.name = 'Cyclic RSI';
       this.isOverlay = false;
@@ -124,7 +131,11 @@ export function getIndicatorClasses() {
       // are semantic and work on both themes.
       this.lineColor = this.plotTheme?.lines?.[0]?.strokeColor || '#e6edf3';
       this.lineWidth = 2;
-      this.period = 14;
+      // Seed with the next-period value (host sets it before construction
+      // to the autoCrsiLength). FintaChart re-runs onResetDefaults during
+      // addIndicators() so setting period AFTER construction gets
+      // clobbered — same pattern SingleCycleIndicator already uses.
+      this.period = CrsiIndicator._nextPeriod || 14;
       this.addPlot(this.lineColor, 'CRSI');
       this.addPlot('#f85149', 'UB');
       this.addPlot('#3fb950', 'LB');
@@ -140,6 +151,40 @@ export function getIndicatorClasses() {
       this.values.get('CRSI').set(pick(this._crsi));
       this.values.get('UB').set(pick(this._ub));
       this.values.get('LB').set(pick(this._lb));
+    }
+
+    // ── Server-computed indicator parameter sync ─────────────────────────
+    // The CRSI data arrays (_crsi / _ub / _lb) come from the cycle-tools-api
+    // /api/DSP/CRSI endpoint, NOT from a local calculation. So when the
+    // user edits the period via FintaChart's settings dialog, we have to
+    // re-fetch from the server — the indicator can't recompute itself.
+    //
+    // Pattern: host (App.jsx) sets `_onPeriodChange = async (newPeriod) =>
+    // { ...refetch + replace arrays + chart.refreshIndicators() }` after
+    // construction. This override forwards period-change events from
+    // FintaChart's parameter system to that callback.
+    //
+    // `changes` shape (from d.ts:IIndicatorParameterChanges):
+    //   { [paramName]: { prevValue, currentValue } }
+    //
+    // Empirical 3.1.6 gotcha: FintaChart writes the parameter value BEFORE
+    // calling this hook, so by the time we see `changes`, `prevValue` and
+    // `currentValue` are usually equal (the diff is computed against
+    // already-updated internal state). Don't rely on `prevValue` for
+    // change detection — just always forward to the callback if periods
+    // appears in the change set. The host's debounce + idempotent refetch
+    // collapses bursts, so this is safe.
+    onParameterUpdated(changes) {
+      super.onParameterUpdated?.(changes);
+      if (!changes) return;
+      const periodChange = changes[P.PERIODS];
+      if (!periodChange) return;
+      const next = Number(periodChange.currentValue);
+      if (!Number.isFinite(next)) return;
+      if (typeof this._onPeriodChange === 'function') {
+        try { this._onPeriodChange(next); }
+        catch (e) { console.error('[CRSI _onPeriodChange]', e); }
+      }
     }
   }
 
