@@ -69,7 +69,7 @@ GitHub provisions Let's Encrypt automatically once DNS resolves. First deploy ta
 
 - This app's source code: see [LICENSE](LICENSE).
 - FintaChart bundle: proprietary, requires a commercial license from Fintatech for any deployed/network-accessible use.
-- Cycle Tools API: each user supplies their own API key from <https://cycle.tools>.
+- Cycle Tools API: each user supplies their own API key.
 
 ## Acknowledgements
 
