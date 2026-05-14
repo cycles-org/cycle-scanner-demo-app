@@ -1,0 +1,74 @@
+/* ==========================================================================
+   Design System — Structural Tokens
+   ==========================================================================
+   This file contains brand-agnostic tokens: spacing, type scale, radii,
+   shadows, motion. Do not edit unless you want to change the SHAPE of the
+   system (rhythm, density, motion language). For brand-specific values
+   (colors, fonts, semantic surfaces, voice classes) edit `theme.css`.
+   ========================================================================== */
+
+:root {
+  /* ============================================================
+     SPACING — 4px base
+     ============================================================ */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+  --space-10: 128px;
+
+  /* ============================================================
+     TYPE SCALE (modular, 1.25 minor third)
+     ============================================================ */
+  --fs-xs:   12px;
+  --fs-sm:   14px;
+  --fs-base: 16px;
+  --fs-md:   18px;
+  --fs-lg:   22px;
+  --fs-xl:   28px;
+  --fs-2xl:  36px;
+  --fs-3xl:  48px;
+  --fs-4xl:  64px;
+  --fs-5xl:  84px;
+
+  --lh-tight:  1.1;
+  --lh-snug:   1.25;
+  --lh-normal: 1.5;
+  --lh-loose:  1.7;
+
+  --tracking-tight:  -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-caps:   0.16em;
+
+  /* ============================================================
+     RADII
+     ============================================================ */
+  --radius-sm:   2px;
+  --radius-md:   4px;
+  --radius-lg:   8px;
+  --radius-pill: 999px;
+
+  /* ============================================================
+     ELEVATION
+     ============================================================ */
+  --shadow-1: 0 1px 2px rgba(11, 31, 58, 0.06), 0 1px 1px rgba(11, 31, 58, 0.04);
+  --shadow-2: 0 2px 6px rgba(11, 31, 58, 0.08), 0 1px 2px rgba(11, 31, 58, 0.05);
+  --shadow-3: 0 8px 24px rgba(11, 31, 58, 0.10), 0 2px 6px rgba(11, 31, 58, 0.06);
+  --shadow-cosmos: 0 12px 40px rgba(0, 0, 0, 0.45);
+
+  /* ============================================================
+     MOTION
+     ============================================================ */
+  --ease-standard: cubic-bezier(0.2, 0.0, 0.2, 1);
+  --ease-out:      cubic-bezier(0.0, 0.0, 0.2, 1);
+  --ease-in:       cubic-bezier(0.4, 0.0, 1.0, 1);
+  --dur-fast:   140ms;
+  --dur-normal: 220ms;
+  --dur-slow:   400ms;
+}

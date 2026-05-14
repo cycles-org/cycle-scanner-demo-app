@@ -1,52 +1,72 @@
+/* ─── Brand: FSC (Foundation for the Study of Cycles) ─────────────────────
+   Imported from the `webapp-design` Claude skill (cycles-org/CodeCyclesSkill).
+   `tokens.css` is structural (spacing, type scale, radii, motion — brand-
+   agnostic); `theme.css` selects an active brand from `themes/` (defaults to
+   FSC). To retarget for a different brand, swap the import in theme.css. */
+@import url('./brand/tokens.css');
+@import url('./brand/theme.css');
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 
-/* ─── Theme variables ─────────────────────────────────────────────────────
-   Switched via body[data-theme="dark"|"light"] from the React layer. */
+/* ─── App variables — bind the FSC semantic tokens to the names this
+   codebase uses internally. Switching brand changes the FSC tokens; this
+   layer keeps the rest of the CSS untouched.
+
+   Two operating modes (per the FSC brand):
+     dark = cosmos  → deep navy ink, ochre accent, off-white text
+     light = paper  → cream surface, slate ink, gold accent
+*/
+/* `--accent`, `--danger`, `--good`, `--warn` are defined ONCE by the FSC
+   theme on `:root` and are identical between paper and cosmos modes — do
+   not redeclare them at body scope (a `--accent: var(--accent)` lookup is
+   a circular self-reference and resolves to invalid). Only the
+   mode-dependent variables (`--bg-*`, `--text-*`, `--border-*`,
+   `--resize*`) get re-bound below. */
 body[data-theme="dark"], body:not([data-theme]) {
-  --bg-app:        #0d1117;
-  --bg-panel:      #161b22;
-  --bg-elev:       #21262d;
-  --bg-hover:      #1c2128;
-  --bg-row-sel:    rgba(88, 166, 255, 0.18);
-  --bg-row-dom:    rgba(63, 185, 80, 0.10);
-  --border:        #30363d;
-  --border-strong: #484f58;
-  --text:          #c9d1d9;
-  --text-muted:    #8b949e;
-  --text-dim:      #6e7681;
-  --accent:        #58a6ff;
-  --danger:        #f85149;
-  --good:          #3fb950;
-  --warn:          #d29922;
-  --resize:        #21262d;
-  --resize-active: #58a6ff;
+  --bg-app:        var(--bg-cosmos);                            /* deep navy */
+  --bg-panel:      #0F2440;                                     /* one step lighter than cosmos */
+  --bg-elev:       #15304F;
+  --bg-hover:      rgba(255, 255, 255, 0.04);
+  --bg-row-sel:    rgba(212, 165, 55, 0.12);                    /* faint ochre */
+  --bg-row-dom:    rgba(47, 125, 90, 0.10);                     /* faint bull green */
+  --border:        var(--rule-on-cosmos);
+  --border-strong: #2A3A58;
+  --text:          var(--fg-on-cosmos);                         /* off-white */
+  --text-muted:    var(--fg-on-cosmos-2);                       /* steel grey */
+  --text-dim:      #6E7A92;
+  --resize:        #0F2440;
+  --resize-active: var(--accent);
 }
 body[data-theme="light"] {
-  --bg-app:        #f6f8fa;
-  --bg-panel:      #ffffff;
-  --bg-elev:       #f6f8fa;
-  --bg-hover:      #eaeef2;
-  --bg-row-sel:    rgba(9, 105, 218, 0.10);
-  --bg-row-dom:    rgba(31, 136, 61, 0.08);
-  --border:        #d0d7de;
-  --border-strong: #afb8c1;
-  --text:          #1f2328;
-  --text-muted:    #57606a;
-  --text-dim:      #6e7781;
-  --accent:        #0969da;
-  --danger:        #cf222e;
-  --good:          #1f883d;
-  --warn:          #9a6700;
-  --resize:        #d0d7de;
-  --resize-active: #0969da;
+  --bg-app:        var(--bg-page);                              /* warm cream */
+  --bg-panel:      var(--bg-elevated);                          /* pure white card surface */
+  --bg-elev:       var(--bg-sunken);
+  --bg-hover:      var(--bg-sunken);
+  --bg-row-sel:    rgba(212, 165, 55, 0.12);
+  --bg-row-dom:    rgba(47, 125, 90, 0.10);
+  --border:        var(--rule);
+  --border-strong: var(--rule-strong);
+  --text:          var(--fg-primary);
+  --text-muted:    var(--fg-secondary);
+  --text-dim:      var(--fg-muted);
+  --resize:        var(--rule);
+  --resize-active: var(--accent);
 }
 
 body {
-  font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.5 var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--bg-app);
   color: var(--text);
+  font-feature-settings: "ss01" on, "cv11" on;                  /* Inter's stylistic single-storey a */
 }
+
+/* Use the slab-serif display font on the few headline elements we have. */
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing: var(--tracking-tight); }
+
+/* Numerical data — tickers, correlations, cycle lengths — uses mono. */
+.symbol-id, .header-chips .chip, .header-chips .cycle-chip,
+.sample-label, .status, .symbol-search input { font-variant-numeric: tabular-nums; }
 
 /* ─── App layout ──────────────────────────────────────────────────────── */
 .app {
@@ -101,13 +121,20 @@ body {
 .toolbar .status { margin-left: auto; opacity: 0.85; font-size: 12px; }
 .toolbar .status.error { color: var(--danger); }
 
-.brand-mark { display: flex; align-items: center; gap: 8px; padding-right: 6px; }
-.brand-mark .dot {
-  display: inline-block; width: 10px; height: 10px;
-  border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 12px var(--accent);
+.brand-mark { display: flex; align-items: center; gap: 10px; padding-right: 6px; }
+.brand-mark .logo {
+  width: 26px; height: 26px;
+  /* The ring mark is a bitmap with a transparent background; sits cleanly
+     on either cosmos or paper surfaces with no recoloring needed. */
+  display: block;
 }
-.brand-mark .brand-name { font-weight: 600; color: var(--text); }
+.brand-mark .brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: var(--tracking-tight);
+  color: var(--text);
+}
 
 .logout-btn {
   background: var(--bg-app);
@@ -535,76 +562,114 @@ li.ind-toolbar-slot {
 .spectrum-tooltip .grid span { color: var(--text-muted); }
 .spectrum-tooltip .grid b { color: var(--text); font-weight: 600; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 
-/* ─── Login screen ────────────────────────────────────────────────────── */
+/* ─── Login screen — FSC cosmos hero ──────────────────────────────────── */
+/* Pattern from webapp-design/ui-kits/cycles-explorer/LoginCosmos.jsx:
+   full-bleed cosmos photograph with a multi-stop gradient overlay,
+   glassmorphism card centered on top, slab-serif headline, italic serif
+   lede, gold submit button. */
 .login-screen {
   position: fixed; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background:
-    radial-gradient(circle at 20% 20%, rgba(88, 166, 255, 0.10), transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(236, 72, 153, 0.08), transparent 50%),
-    var(--bg-app);
+  padding: 32px;
 }
-.login-theme-corner { position: absolute; top: 16px; right: 16px; }
+.login-screen::before {
+  content: '';
+  position: absolute; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(120deg, rgba(5,11,26,0.85), rgba(11,31,58,0.45) 60%, rgba(5,11,26,0.7)),
+    url('/fsc/bg-cosmos-wide.jpeg');
+  background-size: cover;
+  background-position: center;
+}
+.login-theme-corner { position: absolute; top: 16px; right: 16px; z-index: 2; }
 .login-card {
-  width: 100%; max-width: 420px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 32px 28px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
-  display: flex; flex-direction: column; gap: 14px;
+  position: relative; z-index: 1;
+  width: 100%; max-width: 460px;
+  background: rgba(13, 22, 42, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  padding: 36px;
+  box-shadow: var(--shadow-cosmos);
+  color: var(--fg-on-cosmos);
+  display: flex; flex-direction: column; gap: 18px;
 }
-.login-card .brand { display: flex; align-items: center; gap: 10px; }
-.login-card .brand .dot {
-  display: inline-block; width: 12px; height: 12px;
-  border-radius: 50%; background: var(--accent);
-  box-shadow: 0 0 16px var(--accent);
+.login-card .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+.login-card .brand .logo {
+  width: 44px; height: 44px;
+  display: block;
+}
+.login-card .brand .brand-text { display: flex; flex-direction: column; gap: 4px; }
+.login-card .eyebrow {
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--accent);
 }
 .login-card h1 {
-  margin: 0; font-size: 18px; font-weight: 600; color: var(--text);
-  letter-spacing: 0.2px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-xl);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: #F6F1E2;
 }
 .login-card .subtitle {
-  margin: 0; font-size: 13px; color: var(--text-muted);
+  margin: 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: #BCC4D5;
 }
 .login-card .subtitle a { color: var(--accent); text-decoration: none; }
 .login-card .subtitle a:hover { text-decoration: underline; }
 .login-card input[type="password"] {
-  font: inherit; font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  padding: 10px 12px;
-  background: var(--bg-app);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  font: inherit;
+  font-family: var(--font-mono);
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #F6F1E2;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
   outline: none;
-  transition: border-color 120ms;
+  transition: border-color var(--dur-fast) var(--ease-standard);
 }
 .login-card input[type="password"]:focus { border-color: var(--accent); }
 .login-card button[type="submit"] {
   font: inherit;
-  padding: 10px 14px;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+  font-family: var(--font-body);
   font-weight: 600;
-  transition: opacity 120ms, background 120ms;
+  padding: 12px 16px;
+  background: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background var(--dur-fast) var(--ease-standard);
 }
-.login-card button[type="submit"]:hover:not([disabled]) { background: #1f6feb; }
+.login-card button[type="submit"]:hover:not([disabled]) { background: var(--accent-hover); }
 .login-card button[type="submit"]:disabled { opacity: 0.5; cursor: not-allowed; }
 .login-card .error {
-  background: rgba(248, 81, 73, 0.12);
-  color: var(--danger);
-  border: 1px solid rgba(248, 81, 73, 0.4);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
+  background: rgba(178, 58, 46, 0.15);
+  color: #F4B5AE;
+  border: 1px solid rgba(178, 58, 46, 0.4);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xs);
 }
 .login-card .hint {
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  color: #8693A8;
   line-height: 1.5;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* ─── Settings (gear button + modal) ──────────────────────────────────── */

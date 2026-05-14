@@ -1,0 +1,229 @@
+/* ==========================================================================
+   Theme: FSC (Foundation for the Study of Cycles)
+   ==========================================================================
+   Source: extracted from CycleConsensusScore_FSC2025.pptx and
+   NewCaseForCycles_StabilityScore.pptx (FSC Conference 2025, NY).
+
+   This theme is the default — it ships ready to use. To retarget the
+   design system for a different brand, copy `_blank.css`, fill in the
+   semantic tokens at the bottom of the file (the --color-brand-*,
+   --color-fg-*, --color-bg-* block), and point `theme.css` at it.
+
+   The .brand-* utility classes at the bottom use only semantic tokens,
+   so they will follow whichever theme is active.
+   ========================================================================== */
+
+/* ----------------------- Webfont imports ----------------------- *
+ * NOTE: original FSC decks reference "Museo Slab 700" (commercial)
+ * and Calibri. We substitute Roboto Slab and Inter from Google Fonts.
+ * Flag this to the brand team and request licensed Museo Slab webfont
+ * files if available.
+ * --------------------------------------------------------------- */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Roboto+Slab:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ============================================================
+     BRAND PALETTE — FSC
+     The FSC mark is a Saturn-like glyph of overlapping rings:
+     teal, ochre/gold, deep blue, navy.
+     ============================================================ */
+  --color-brand-1:        #2A9CAA;  /* teal — lighter ring                  */
+  --color-brand-1-deep:   #1B7B86;  /* shadowed teal                        */
+  --color-brand-2:        #D4A537;  /* ochre / gold — primary accent        */
+  --color-brand-2-soft:   #C9B26E;  /* desaturated ochre overlay            */
+  --color-brand-3:        #1F6FA0;  /* mid blue                             */
+  --color-brand-3-deep:   #14456E;  /* shadowed deep blue                   */
+  --color-brand-4:        #0B1F3A;  /* near-black cosmos navy               */
+
+  /* Backwards-compatible aliases for code that still uses --fsc-* names. */
+  --fsc-teal:        var(--color-brand-1);
+  --fsc-teal-deep:   var(--color-brand-1-deep);
+  --fsc-gold:        var(--color-brand-2);
+  --fsc-gold-soft:   var(--color-brand-2-soft);
+  --fsc-blue:        var(--color-brand-3);
+  --fsc-blue-deep:   var(--color-brand-3-deep);
+  --fsc-navy:        var(--color-brand-4);
+
+  /* Spectrum / chart colors — mathematical conventions; not decorative. */
+  --chart-line:      #2C456C;
+  --chart-ideal:     #C8302A;
+  --chart-forecast:  #D85DCB;
+  --chart-grid:      #E2E6EE;
+  --chart-axis:      #6B7280;
+
+  /* ============================================================
+     NEUTRALS — warm cream ramp
+     ============================================================ */
+  --neutral-0:   #FFFFFF;
+  --neutral-50:  #F7F6F2;
+  --neutral-100: #ECEAE3;
+  --neutral-200: #D9D6CD;
+  --neutral-300: #B8B4A8;
+  --neutral-400: #8C8880;
+  --neutral-500: #6B675F;
+  --neutral-600: #4A4842;
+  --neutral-700: #2E2D29;
+  --neutral-800: #1B1A18;
+  --neutral-900: #0E0D0C;
+
+  /* ============================================================
+     SEMANTIC SURFACES — two operating modes
+     (1) Paper / academic: cream surface, slate ink, gold accent
+     (2) Cosmos / hero:    near-black surface, ochre + teal accents
+     ============================================================ */
+  --bg-page:       var(--neutral-50);
+  --bg-elevated:   var(--neutral-0);
+  --bg-sunken:     var(--neutral-100);
+  --bg-cosmos:     var(--color-brand-4);
+  --bg-cosmos-2:   #050B1A;
+
+  --fg-primary:    var(--neutral-800);
+  --fg-secondary:  var(--neutral-600);
+  --fg-muted:      var(--neutral-500);
+  --fg-on-cosmos:  #F2EEE2;
+  --fg-on-cosmos-2:#A9B3C5;
+
+  --accent:        var(--color-brand-2);
+  --accent-hover:  #B98D26;
+  --accent-on:     var(--neutral-900);
+
+  --link:          var(--color-brand-3);
+  --link-hover:    var(--color-brand-3-deep);
+
+  --rule:          var(--neutral-200);
+  --rule-strong:   var(--neutral-300);
+  --rule-on-cosmos:#1F2B45;
+
+  /* Status (restrained — not for decoration). */
+  --status-bull:   #2F7D5A;
+  --status-bear:   #B23A2E;
+  --status-warn:   #C68A14;
+  --status-info:   var(--color-brand-3);
+
+  /* ============================================================
+     TYPE — Families
+     ============================================================ */
+  --font-display: "Roboto Slab", "Museo Slab", "Times New Roman", Georgia, serif;
+  --font-body:    "Inter", "Calibri", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "Courier New", monospace;
+  --font-serif:   "Roboto Slab", Georgia, "Times New Roman", serif;
+}
+
+/* ============================================================
+   SEMANTIC CLASSES — typographic primitives
+   Renamed from .fsc-* to .brand-* so themes can be swapped
+   without rewriting every page. Old .fsc-* class names are
+   kept as aliases below for source files copied from the
+   FSC preview set.
+   ============================================================ */
+
+.brand-eyebrow {
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.brand-h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-4xl);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: 700;
+  color: var(--fg-primary);
+  text-wrap: balance;
+}
+
+.brand-h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--tracking-tight);
+  font-weight: 600;
+  color: var(--fg-primary);
+  text-wrap: balance;
+}
+
+.brand-h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  line-height: var(--lh-snug);
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+.brand-h4 {
+  font-family: var(--font-body);
+  font-size: var(--fs-lg);
+  line-height: var(--lh-snug);
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+.brand-p {
+  font-family: var(--font-body);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  color: var(--fg-secondary);
+  text-wrap: pretty;
+}
+
+.brand-lede {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--fs-lg);
+  line-height: var(--lh-snug);
+  color: var(--fg-primary);
+  text-wrap: balance;
+}
+
+.brand-label {
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--fg-muted);
+}
+
+.brand-mono {
+  font-family: var(--font-mono);
+  font-size: 0.94em;
+  letter-spacing: 0;
+}
+
+.brand-stat {
+  font-family: var(--font-display);
+  font-size: var(--fs-5xl);
+  line-height: 1;
+  letter-spacing: var(--tracking-tight);
+  font-weight: 700;
+  color: var(--color-brand-3-deep);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.brand-link {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  transition: color var(--dur-fast) var(--ease-standard);
+}
+.brand-link:hover { color: var(--link-hover); text-decoration-thickness: 2px; }
+
+/* Legacy aliases so files copied from the FSC preview set still render
+   unmodified. New work should prefer the .brand-* names above. */
+.fsc-eyebrow { font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--accent); }
+.fsc-h1      { font-family: var(--font-display); font-size: var(--fs-4xl); line-height: var(--lh-tight); letter-spacing: var(--tracking-tight); font-weight: 700; color: var(--fg-primary); text-wrap: balance; }
+.fsc-h2      { font-family: var(--font-display); font-size: var(--fs-2xl); line-height: var(--lh-snug); letter-spacing: var(--tracking-tight); font-weight: 600; color: var(--fg-primary); text-wrap: balance; }
+.fsc-h3      { font-family: var(--font-display); font-size: var(--fs-xl); line-height: var(--lh-snug); font-weight: 600; color: var(--fg-primary); }
+.fsc-h4      { font-family: var(--font-body); font-size: var(--fs-lg); line-height: var(--lh-snug); font-weight: 600; color: var(--fg-primary); }
+.fsc-p       { font-family: var(--font-body); font-size: var(--fs-base); line-height: var(--lh-normal); color: var(--fg-secondary); text-wrap: pretty; }
+.fsc-lede    { font-family: var(--font-serif); font-style: italic; font-size: var(--fs-lg); line-height: var(--lh-snug); color: var(--fg-primary); text-wrap: balance; }
+.fsc-label   { font-family: var(--font-body); font-size: var(--fs-xs); font-weight: 500; text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--fg-muted); }
+.fsc-mono    { font-family: var(--font-mono); font-size: 0.94em; letter-spacing: 0; }
+.fsc-stat    { font-family: var(--font-display); font-size: var(--fs-5xl); line-height: 1; letter-spacing: var(--tracking-tight); font-weight: 700; color: var(--color-brand-3-deep); font-variant-numeric: lining-nums tabular-nums; }
+.fsc-link    { color: var(--link); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; transition: color var(--dur-fast) var(--ease-standard); }
+.fsc-link:hover { color: var(--link-hover); text-decoration-thickness: 2px; }

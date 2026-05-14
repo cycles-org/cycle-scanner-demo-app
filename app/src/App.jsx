@@ -993,7 +993,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     <div className="app">
       <div className="toolbar">
         <div className="brand-mark">
-          <span className="dot" />
+          <img className="logo" src="/fsc/logo-fsc-mark.png" alt="" />
           <span className="brand-name">Cycle Scanner</span>
         </div>
 
