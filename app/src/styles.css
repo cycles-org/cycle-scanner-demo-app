@@ -1,5 +1,5 @@
 /* ─── Brand: FSC (Foundation for the Study of Cycles) ─────────────────────
-   Imported from the `webapp-design` Claude skill (cycles-org/CodeCyclesSkill).
+   Imported from the `webapp-design` Claude skill (cycles-org/cycle-tools-plugins).
    `tokens.css` is structural (spacing, type scale, radii, motion — brand-
    agnostic); `theme.css` selects an active brand from `themes/` (defaults to
    FSC). To retarget for a different brand, swap the import in theme.css. */
