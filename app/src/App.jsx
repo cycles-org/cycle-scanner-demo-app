@@ -258,8 +258,11 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     };
     chart.on(FC.ChartEvent.INSTRUMENT_CHANGED, onInstrumentChanged);
 
-    // Tell FintaChart to relayout when its container changes size — fixes the
-    // "chart doesn't fill the pane after the user drags a resize handle" bug.
+    // Tell FintaChart to relayout when its container changes size.
+    // 3.1.5/3.1.6 added an internal ResizeObserver to the bundle (single
+    // `new ResizeObserver(...)` in scripts/FintaChart.min.js), so this is
+    // now defensive — both observers fire and call refreshSize, no harm.
+    // Pre-3.1.5 builds rely entirely on consumer-side wiring like this.
     // rAF-throttled so a continuous drag fires at most once per frame.
     let resizeRaf = 0;
     const ro = new ResizeObserver(() => {
@@ -443,8 +446,15 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
         // FintaChart 3.1.5+: properly overlay on the price pane with the
         // composite's OWN auto-scaled y-axis. The composite values
         // (roughly -100..+100) get their own left-side axis labels; price
-        // keeps the right-side axis. No more value-range remap, no more
-        // visible-range remap loop, no more debounced refreshIndicators().
+        // keeps the right-side axis.
+        //
+        // NOTE: we tried the declarative `needsCustomScale()` protocol
+        // (CompositeCycle returns true), which DID get FintaChart's pane
+        // lifecycle to auto-create + bind a custom scale — but the
+        // auto-created scale defaults to `leftAxisVisible: false` and
+        // `rightAxisVisible: false`, so the user sees the composite on
+        // price coordinates but no axis labels. Explicit creation +
+        // visibility setup is clearer.
         const scale = chartRef.current.addVerticalScale();
         scale.leftAxisVisible  = true;     // composite axis on the left
         scale.rightAxisVisible = false;    // price keeps the right
