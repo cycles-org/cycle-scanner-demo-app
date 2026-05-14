@@ -31,9 +31,16 @@ desktop.ini
 .claude-worktree
 
 # ─── Private — do NOT publish to the public repo ──────────────────────────
-# The project-scoped FintaChart skill and our internal docs / feedback notes
-# stay local. The build doesn't depend on any of these.
-.claude/
+# Local Claude Code config + internal docs / feedback notes stay private.
+# The .claude/skills/ subdirectory is intentionally NOT ignored — it contains
+# the project-scoped FintaChart skill, which is reference documentation worth
+# sharing publicly with the demo app.
+.claude/launch.json
+.claude/settings.local.json
+.claude/agents/
+.claude/hooks/
+.claude/commands/
+.claude/.config/
 FintaChart-feedback.md
 FintaChart-followup-email.md
 FintaChart-feedback-reply.md
