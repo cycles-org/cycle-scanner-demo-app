@@ -16,7 +16,7 @@ description: >
 
 # FintaChart — Charting Library
 
-**Package:** `@fintatech/fintachart` (npm) · **Version covered:** **3.1.6** (latest as of 2026-05-13) · **License:** proprietary, free for local dev only · **Repo:** https://github.com/fintatech/fintachart
+**Package:** `@fintatech/fintachart` (npm) · **Version covered:** **3.1.7** (latest as of 2026-05-14) · **License:** proprietary, free for local dev only · **Repo:** https://github.com/fintatech/fintachart
 
 Browser-only canvas charting library for financial data. Single global namespace `FintaChart.*`.
 
@@ -58,6 +58,15 @@ Browser-only canvas charting library for financial data. Single global namespace
 > **Plus the toolbar search modal (3.1.4 #10) is now usable** — with caveats. See `references/datafeed-contract.md` § *Built-in toolbar search modal* for the 4-gotcha pattern (install BEFORE `new FC.Chart()`, augment symbol with company text for the modal's substring filter, etc.).
 >
 > **Still open in 3.1.6:** #3 (`chartType` setter throws — docs-only fix), #4 (`chart.instrument =` doesn't auto-flush — docs-only fix), #6 (`_values` clobbers — docs-only fix), #11 (per-indicator refresh), #13 (multi-indicator perf), #25 (`PointPlot.Style.DOT` no-op).
+>
+> **About v3.1.7 (released 2026-05-14).** Four more open items addressed — all four were the higher-priority items from our (a)–(j) feedback batch (the previous-round closes plus this one mean the maintainers have shipped fixes for **8 of the 10** post-3.1.6 items we flagged):
+> - **(a)** — `chart.addIndicatorInNewPane(ind)` no longer crashes inside `initPaneTitle`. The fix is in `Indicator.placeOnPane` which now drives `chart.InitializeVisualDimensions()` and `pane.refreshScaleAsync()` on the new pane (same bring-up as the standard `addPane()`), materializing the pane's title container before `initPaneTitle()` runs. Verified end-to-end with both built-in SMA and our custom `CompositeCycle`. The `chart.addIndicators(ind)` + `isOverlay = false` path also still works for backward-compat with 3.1.5/3.1.6 deployments.
+> - **(b)** — `docs/api/data-adapters.md` gained a "Search modal: install hooks before chart construction" section documenting the `InstrumentSearch` constructor-timing race. `examples/html/15-instrument-search/` restructured to install `Instrument.filter` / `filterById` before `new FintaChart.Chart(...)`, matching the pattern we shipped. Pure docs change — no runtime behavior shift.
+> - **(c)** — Toolbar search modal now matches the user's query against both `instrument.symbol` AND `instrument.company`. Previously `symbol`-substring only, which silently rendered zero results when typing "Apple" against a backend whose Apple instruments live under tickers `AAPL`/`0R2V`/`603020`/etc. Our **symbol-augmentation workaround can be removed** — `Instrument.filter` returns clean rows now and the modal does its own dual-field match. Also: `Instrument.filter`'s first parameter renamed `symbol` → `query` in docs (cosmetic, same semantics).
+> - **(f)** — **"Move to price pane" context-menu item shipped** for indicators (`moveToPrice` localization key, `<li data-id="moveToPrice">` in `IndicatorContextMenu.html`, `canMoveToPrice` getter on the `Indicator` class). Creates a dedicated `VerticalScale` with `leftAxisVisible = true` (which was the secondary ask in our feedback) and migrates plots from the source pane to the primary pane. The reverse direction reuses the existing **"Separate pane bottom"** (`unmergeDown`). Our split-button placement popover stays for high-discoverability in the app toolbar, but consumers who want the lighter integration can now rely solely on the right-click menu.
+> - Minor: text-overlap in the instrument search modal fixed via wider search window.
+>
+> **Still open in 3.1.7:** #3 (`chartType` setter throws — docs-only fix), #4 (`chart.instrument =` doesn't auto-flush — docs-only fix), #6 (`_values` clobbers — docs-only fix), #11 (per-indicator refresh), #13 (multi-indicator perf), #25 (`PointPlot.Style.DOT` no-op), plus 6 of the post-3.1.6 items: (d) `INSTRUMENT_CHANGED` payload variability, (e) field-name normalization for non-FSC1 datafeeds (`shortName` → `company`), (g) watermark polish, (h) `refreshAsync(true)` doesn't recompute indicator values, (i) no public API for custom toolbar buttons, (j) toolbar dropdowns only open on CSS `:hover`.
 >
 > **New gotchas in 3.1.5/3.1.6** (see `references/gotchas.md`):
 > - (a) `chart.addIndicatorInNewPane(ind)` crashes inside `initPaneTitle` with `appendChild(null)` — use `chart.addIndicators(ind)` with `isOverlay = false` instead.

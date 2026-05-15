@@ -140,29 +140,22 @@ Two new toolbar buttons: "Full Window" and "Full Screen". Available via the tool
 
 ## ⚠️ New gotchas in 3.1.5 / 3.1.6 (verified empirically)
 
-### `chart.addIndicatorInNewPane(ind)` is buggy — use `chart.addIndicators(ind)` instead
+### `chart.addIndicatorInNewPane(ind)` — fixed in 3.1.7 (was buggy in 3.1.5/3.1.6)
 
-The new 3.1.6 helper is documented in `docs/api/custom-indicators.md` but its implementation crashes inside `initPaneTitle` with:
+**Status:** ✅ **Fixed in 3.1.7.** The 3.1.5/3.1.6 implementation crashed inside `initPaneTitle` with `Cannot read properties of null (reading 'appendChild')` — the new pane's title container wasn't materialized before `initPaneTitle()` ran. 3.1.7's fix: `Indicator.placeOnPane` now drives `chart.InitializeVisualDimensions()` and `pane.refreshScaleAsync()` on the new pane (same bring-up as the standard `addPane()`), so the title bar exists before any rendering call.
 
-```
-Cannot read properties of null (reading 'appendChild')
-  at initPaneTitle (FintaChart.min.js:949265)
-  at refresh (FintaChart.min.js:929973)
-  at executeIndicators (FintaChart.min.js:3604184)
-  ...
-  at addIndicatorInNewPane (FintaChart.min.js:3592757)
-```
+Verified empirically against 3.1.7 with both built-in `SimpleMovingAverage` and our custom `CompositeCycle` — both add cleanly without crashing.
 
-**Workaround:** use the standard `chart.addIndicators(ind)` with `ind.isOverlay = false` (set in `onResetDefaults`) — same end result, no crash. The default pane-placement code path works fine; only the new explicit helper is broken.
+**Workaround (no longer required on 3.1.7, kept for back-compat):** the standard `chart.addIndicators(ind)` with `ind.isOverlay = false` (set in `onResetDefaults`) places the indicator in a new pane via the indicator's default placement code path. This works in every 3.1.x version and is what our reference implementation uses; on 3.1.7 you can switch to `addIndicatorInNewPane(ind)` if you prefer the explicit API.
 
-### Toolbar search modal — 4 gotchas to work around
+### Toolbar search modal — 4 gotchas to work around (2 closed in 3.1.7)
 
 The 3.1.4+ search modal works, but only with all of these in place:
 
-1. Install `FintaChart.Instrument.filter` / `filterById` overrides **BEFORE** `new FC.Chart(...)` (the modal can bind references inside the constructor)
-2. The modal's internal filter matches **symbol substring only**, not company — augment `symbol` with company text in `filter()` return; return clean `symbol` from `filterById()`
-3. `chart.exchanges()` strings must match what your `Instrument.filter` returns in `exchange` field, or use `[]` (no tabs)
-4. INSTRUMENT_CHANGED listener should read `chart.instrument` directly, not `event.value` (payload shape varies across 3.1.x)
+1. ✅ **DOCUMENTED in 3.1.7** — Install `FintaChart.Instrument.filter` / `filterById` overrides **BEFORE** `new FC.Chart(...)`. The 3.1.7 docs added a "Search modal: install hooks before chart construction" section explaining the `InstrumentSearch` constructor-timing race. The pattern itself hasn't changed; just the docs caught up. Continue installing hooks pre-construction.
+2. ✅ **FIXED in 3.1.7** — The modal's internal filter now matches against both `instrument.symbol` AND `instrument.company`. Was symbol-substring only in 3.1.4 – 3.1.6, which silently rendered zero results when typing "Apple" against backends whose Apple tickers are `AAPL` / `0R2V` / `603020`. **The symbol-augmentation workaround can be removed** — `Instrument.filter` should now return clean rows. (The `query` parameter was also renamed from `symbol` in the docs — cosmetic.)
+3. ⚠️ **STILL OPEN** — `chart.exchanges()` strings must match what your `Instrument.filter` returns in `exchange` field, or use `[]` (no tabs)
+4. ⚠️ **STILL OPEN** — INSTRUMENT_CHANGED listener should read `chart.instrument` directly, not `event.value` (payload shape varies across 3.1.x)
 
 Full pattern + reasoning in `references/datafeed-contract.md` § *Built-in toolbar search modal*.
 
@@ -186,9 +179,15 @@ chart.primaryPane.addIndicator(ind);
 
 The explicit path is what our `app/src/App.jsx` ships. Flagged with the maintainers as a default-tweak suggestion.
 
-### Built-in pane-merge does not target the price pane
+### Built-in pane-merge does not target the price pane — shipped in 3.1.7
 
-The right-click "Move pane top / bottom / Separate pane top / bottom" menu items move indicators between *custom-indicator panes*. They cannot merge an indicator into the price (primary) pane. The only way to overlay a custom indicator on the price pane is programmatic — `chart.primaryPane.addIndicator(ind)`. Consumer-side toggle UI (a radio button) is the current pattern; a built-in "Move to price overlay" menu item is flagged with the maintainers as a future enhancement.
+**Status:** ✅ **Shipped in 3.1.7** as the new **"Move to price pane"** context-menu item (`moveToPrice` localization key, `<li data-id="moveToPrice">` in `IndicatorContextMenu.html`, `canMoveToPrice` getter on the `Indicator` class). One-click promotion of a custom-pane indicator onto the primary pane as an overlay — creates a dedicated `VerticalScale` with `leftAxisVisible = true` (the axis-visibility fix we also flagged), migrates plots, rebuilds the title bar, and removes the source pane when it becomes empty. The reverse direction is the existing **"Separate pane bottom"** (`unmergeDown`).
+
+**Pre-3.1.7 history:** the right-click "Move pane top / bottom / Separate pane top / bottom" menu items moved indicators between *custom-indicator panes* only — they could not merge into the price (primary) pane. The only way to overlay a custom indicator on the price pane was programmatic, via `chart.primaryPane.addIndicator(ind)`. Consumer-side toggle UI (a radio button or split-button popover) was the workaround.
+
+**Notes for consumers on 3.1.7+:**
+- Right-click menu now does what users expect — no consumer-side toggle UI is strictly required anymore. App-toolbar split-buttons remain useful for high-discoverability surfaces but can be dropped if a lighter integration is preferred.
+- The new context-menu path auto-creates the custom `VerticalScale` with `leftAxisVisible = true`, so the indicator's axis labels render — no post-hoc `ind.verticalScale.leftAxisVisible = true` patch needed (compare the `needsCustomScale` gotcha further down, which was about declarative-protocol-driven creation, not the menu path).
 
 ---
 

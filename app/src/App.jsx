@@ -199,21 +199,22 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       };
     };
 
-    // The toolbar modal's internal client-filter (InstrumentSearch's
-    // generateSearchResults + normalizeSymbolForSearch + searchTextPositions)
-    // only matches the user's query against `result.symbol` substring — NOT
-    // against `result.company`. So when a consumer's backend (like the
-    // cycle-tools-api) returns Apple-related results whose symbols are
-    // AAPL / 0R2V / 603020 / etc., typing "Apple" finds nothing — even
-    // though the company field clearly contains "Apple Inc".
+    // 3.1.7 fixed the modal's internal filter to match against both
+    // `instrument.symbol` and `instrument.company` (was symbol-substring
+    // only in 3.1.6 — see CHANGELOG). Our previous workaround augmented
+    // the symbol field with the company text to force the substring
+    // match; with 3.1.7 that augmentation is no longer needed, so we
+    // return clean rows directly. The `normalise()` mapping of
+    // `shortName` → `company` is still needed because the modal renders
+    // the row text as `{symbol} {exchange} — {company}` and our REST
+    // returns the full name in `shortName`.
     //
-    // Workaround: in `filter`, AUGMENT the symbol with the company text
-    // so the modal's substring match passes. In `filterById` (called when
-    // the user picks a result), return the CLEAN symbol so the chart's
-    // toolbar label shows just the ticker after selection.
+    // Note: the `query` parameter name is what 3.1.7 docs call it. In
+    // earlier versions the same arg was documented as `symbol`. Same
+    // semantics either way.
     //
-    // We cache the clean version in `lastResults` so filterById can hand
-    // it back without re-hitting the API.
+    // `lastResults` cache lets `filterById` hand back the same row
+    // without re-hitting the API.
     FC.Instrument.filter = async (query, filters, page, size) => {
       try {
         const raw = await searchSymbols(query ?? '', apiKey);
@@ -226,11 +227,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
           clean = clean.slice(start, start + size);
         }
         lastResults = clean;
-        // Augment the symbol field for the modal's substring filter.
-        return clean.map((c) => ({
-          ...c,
-          symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
-        }));
+        return clean;
       } catch (e) {
         console.error('[FC.Instrument.filter]', e);
         return [];
@@ -239,7 +236,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
 
     FC.Instrument.filterById = async (id) => {
       const hit = lastResults.find((i) => String(i.id) === String(id));
-      if (hit) return hit;          // CLEAN — un-augmented symbol
+      if (hit) return hit;
       try {
         const raw = await searchSymbols(String(id), apiKey);
         const list = (raw ?? []).map(normalise);
@@ -840,15 +837,15 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
         ind.bindToVerticalScale(scale);
         chartRef.current.primaryPane.addIndicator(ind);
       } else {
-        // Own pane below price. NOTE: the 3.1.6-documented helper
-        // `chart.addIndicatorInNewPane(ind)` is buggy at runtime — it
-        // crashes inside `initPaneTitle` with
-        // `Cannot read properties of null (reading 'appendChild')`
-        // (verified empirically against `@fintatech/fintachart@3.1.6`).
-        // Fall back to the standard `chart.addIndicators(ind)` which
-        // uses `ind.isOverlay = false` (set in CompositeCycle's
-        // onResetDefaults) to place the indicator in a new pane — same
-        // result, no crash.
+        // Own pane below price. We use `chart.addIndicators(ind)` with
+        // `ind.isOverlay = false` (set in CompositeCycle's onResetDefaults)
+        // — the indicator's default placement creates a new pane below
+        // price. `chart.addIndicatorInNewPane(ind)` is now ALSO a valid
+        // path as of 3.1.7 (the 3.1.6 crash inside `initPaneTitle` was
+        // fixed in `Indicator.placeOnPane` driving `chart.InitializeVisualDimensions()`
+        // and `pane.refreshScaleAsync()` before the title bar mounts).
+        // Either path works; this one stays for backward-compat with any
+        // 3.1.5 / 3.1.6 deployment that still uses the bundle.
         chartRef.current.addIndicators(ind);
       }
 

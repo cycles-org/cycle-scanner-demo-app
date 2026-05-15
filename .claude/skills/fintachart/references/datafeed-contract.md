@@ -324,11 +324,13 @@ Full shape per `docs/api/instrument.md`:
 
 The chart's toolbar exposes a search-button that opens a modal with text input + exchange-filter tabs. To wire it to your own catalog, **override three methods** — NOT the legacy `searchInstruments` config callback (which is a stubbed-out function that does nothing). The pattern matches `examples/html/15-instrument-search/`.
 
-**FOUR GOTCHAS in 3.1.4–3.1.6** that aren't documented anywhere — all verified empirically against `@fintatech/fintachart@3.1.6`:
+**FOUR GOTCHAS in 3.1.4–3.1.6** — verified empirically against `@fintatech/fintachart@3.1.6`. Two of them are closed in 3.1.7; both are kept here for back-compat (anyone on 3.1.4–3.1.6 still hits them) and to document the canonical pattern that survives across versions.
 
-### Gotcha 1 — INSTALL OVERRIDES BEFORE `new FC.Chart(...)`
+### Gotcha 1 — INSTALL OVERRIDES BEFORE `new FC.Chart(...)` *(documented in 3.1.7)*
 
 The chart's `InstrumentSearch` instance can capture/bind `FintaChart.Instrument.filter` *inside the constructor*. If you set the override AFTER construction, the modal may use the stubbed default (returning empty results) — verified zero invocations of our override in 3.1.4 when we set it post-construction.
+
+3.1.7 added a "Search modal: install hooks before chart construction" section to `docs/api/data-adapters.md` and restructured `examples/html/15-instrument-search/` to install the overrides pre-construction — the runtime behavior is unchanged, the docs caught up.
 
 ```js
 // CORRECT — overrides BEFORE constructor
@@ -338,34 +340,30 @@ const chart = new FintaChart.Chart({ container, ... });   // ← then construct
 chart.exchanges = () => ['US', 'LSE', 'CRYPTO'];          // per-instance, AFTER is fine
 ```
 
-### Gotcha 2 — The modal's internal filter matches `symbol` substring only, NOT `company`
+### Gotcha 2 — The modal's internal filter matches `symbol` substring only, NOT `company` *(fixed in 3.1.7)*
 
-The modal applies a client-side filter on top of what you return: `normalizeSymbolForSearch(query)` is searched as a substring within `normalizeSymbolForSearch(result.symbol)`. The `company` / `description` fields are NOT checked. So when a user types a company name like "Apple" and your REST returns rich matches (`AAPL`, `0R2V`, `603020`, all with `company: 'Apple Inc...'`), the modal filters them ALL out because their symbols don't contain "APPLE".
-
-**Workaround:** augment the symbol field in your `filter()` return so the modal's substring match passes; return the clean symbol in `filterById()` so the toolbar label stays sane.
+**Status:** ✅ **Fixed in 3.1.7.** The modal now matches the user's query against both `instrument.symbol` AND `instrument.company`. If you can pin your dependency to `^3.1.7`, return clean rows from `Instrument.filter` — no augmentation needed.
 
 ```js
-let lastResults = [];
-
+// 3.1.7+ — clean return
 FintaChart.Instrument.filter = async (query, exchanges, page, size) => {
   const clean = await yourBackend.search(query);   // [{id, symbol, company, ...}]
-  // (paginate, exchange-filter on `clean` here if needed)
-  lastResults = clean;   // cache CLEAN for filterById
-  // Augment for modal display so substring-match passes:
-  return clean.map((c) => ({
-    ...c,
-    symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
-  }));
-};
-
-FintaChart.Instrument.filterById = async (id) => {
-  const hit = lastResults.find((i) => String(i.id) === String(id));
-  if (hit) return hit;   // CLEAN — un-augmented
-  // ...fallback for direct id lookups (state restore)
+  lastResults = clean;
+  return clean;
 };
 ```
 
-Result: dropdown shows `AAPL · Apple Inc · US — Apple Inc` (matches user's typed query), but the chart's toolbar label shows just `AAPL` after the pick.
+**Pre-3.1.7 history (kept for back-compat with 3.1.4 – 3.1.6 deployments):** the modal applied a client-side filter on top of what you returned: `normalizeSymbolForSearch(query)` was searched as a substring within `normalizeSymbolForSearch(result.symbol)`. The `company` / `description` fields were NOT checked. Typing "Apple" against a backend whose Apple instruments live under tickers `AAPL` / `0R2V` / `603020` silently rendered zero results. The workaround was to augment the symbol field so the substring match would pass, and return the clean symbol from `filterById` so the toolbar label stayed sane:
+
+```js
+// Pre-3.1.7 workaround — augment for the modal's substring filter
+return clean.map((c) => ({
+  ...c,
+  symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
+}));
+```
+
+Cosmetic note: `Instrument.filter`'s first parameter is now named `query` in 3.1.7 docs (was `symbol` previously). Semantics unchanged.
 
 ### Gotcha 3 — `chart.exchanges()` strings must match your `Instrument.filter` return's `exchange` field
 
