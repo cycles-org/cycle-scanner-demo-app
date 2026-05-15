@@ -1,20 +1,19 @@
 // Indicator toggles injected into FintaChart's own toolbar (via React portal
 // from App.jsx into a custom <li> appended to ul.tcdToolbarNavTop).
 //
-// Two controls:
-//   - Composite (split button) — sine-wave icon click toggles on/off;
-//     ▾ caret opens a placement popover (own pane vs price overlay).
-//   - Cyclic RSI (plain toggle) — oscillator icon, click to add/remove.
+// Two plain icon toggles:
+//   - Composite (sine-wave icon) — click to add/remove. Always added as a
+//     price-pane overlay with its own left-side auto-scaled axis. Users
+//     change placement via FintaChart 3.1.7's built-in right-click context
+//     menu ("Unmerge down" / "Move to price pane"), not via a custom UI.
+//   - Cyclic RSI (oscillator icon) — plain on/off toggle in its own pane.
 //
-// The placement popover is itself rendered through a second portal to
-// document.body with `position: fixed`. Without that, FintaChart's
-// `tcdToolbar-scroll-wrapper` (which has `overflow: hidden` to support
-// horizontal toolbar scrolling) clips the popover entirely — z-index alone
-// can't escape the clip region. Coordinates come from the caret button's
-// getBoundingClientRect and refresh on scroll/resize while open.
+// The split-button placement popover this component used to ship (caret +
+// portal-to-body popover with "own pane" / "overlay" radios) was retired
+// once FC 3.1.7 added "Move to price pane" as a native context-menu item.
+// The portal-popover pattern is still useful for skill consumers; see
+// `cycle-charting/references/ui-patterns.md` for the documented recipe.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useScannerStore } from '../state/useScannerStore.js';
 
 // ─── Inline SVG icons (matches FintaChart's toolbar SVG aesthetic) ────────
@@ -50,105 +49,27 @@ function OscillatorIcon() {
     </svg>
   );
 }
-function CaretIcon() {
-  return (
-    <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
-      <path d="M1,2.5 L4,6 L7,2.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 export default function IndicatorButtons() {
   const showComposite     = useScannerStore((s) => s.showComposite);
   const showCRSI          = useScannerStore((s) => s.showCRSI);
-  const compositeMode     = useScannerStore((s) => s.compositeMode);
   const setShowComposite  = useScannerStore((s) => s.setShowComposite);
   const setShowCRSI       = useScannerStore((s) => s.setShowCRSI);
-  const setCompositeMode  = useScannerStore((s) => s.setCompositeMode);
-
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
-  const splitRef = useRef(null);
-  const caretRef = useRef(null);
-  const popoverRef = useRef(null);
-
-  // Position the popover under the caret button. `position: fixed` + viewport
-  // coordinates from getBoundingClientRect — independent of any ancestor
-  // overflow/transform/clip.
-  const positionMenu = useCallback(() => {
-    const r = caretRef.current?.getBoundingClientRect();
-    if (!r) return;
-    // Anchor under the caret, left-aligned. Nudge left by the button's width
-    // so the popover sits under the *whole* split button, not just the caret.
-    const splitR = splitRef.current?.getBoundingClientRect();
-    const left = splitR ? splitR.left : r.left;
-    setMenuPos({ top: r.bottom + 4, left });
-  }, []);
-
-  // Position before paint to avoid a flash at (0,0).
-  useLayoutEffect(() => {
-    if (menuOpen) positionMenu();
-  }, [menuOpen, positionMenu]);
-
-  // Keep position correct while open if the user scrolls / resizes.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onChange = () => positionMenu();
-    window.addEventListener('resize', onChange);
-    window.addEventListener('scroll', onChange, true);
-    return () => {
-      window.removeEventListener('resize', onChange);
-      window.removeEventListener('scroll', onChange, true);
-    };
-  }, [menuOpen, positionMenu]);
-
-  // Close on outside click / Escape. mousedown so the popover dismisses
-  // before any underlying control receives the click. Outside = not in the
-  // split button AND not in the popover itself.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e) => {
-      const inSplit   = splitRef.current?.contains(e.target);
-      const inPopover = popoverRef.current?.contains(e.target);
-      if (!inSplit && !inPopover) setMenuOpen(false);
-    };
-    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
-    document.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [menuOpen]);
 
   return (
     <div className="ind-btn-group">
-      <div className="ind-btn-split" ref={splitRef}>
-        <button
-          type="button"
-          className={`ind-btn ind-btn-icon ind-btn-main ${showComposite ? 'is-on' : ''}`}
-          onClick={() => setShowComposite(!showComposite)}
-          title={showComposite
-            ? `composite cycle on · ${compositeMode === 'pane' ? 'own pane' : 'price overlay'} · click to hide`
-            : 'show composite cycle'}
-          aria-label="toggle composite cycle"
-          aria-pressed={showComposite}
-        >
-          <SineIcon />
-        </button>
-        <button
-          ref={caretRef}
-          type="button"
-          className={`ind-btn ind-btn-caret ${showComposite ? 'is-on' : ''}`}
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-label="composite placement options"
-          title="composite placement"
-        >
-          <CaretIcon />
-        </button>
-      </div>
+      <button
+        type="button"
+        className={`ind-btn ind-btn-icon ${showComposite ? 'is-on' : ''}`}
+        onClick={() => setShowComposite(!showComposite)}
+        title={showComposite
+          ? 'composite cycle on · right-click the line to move to own pane'
+          : 'show composite cycle (price-pane overlay)'}
+        aria-label="toggle composite cycle"
+        aria-pressed={showComposite}
+      >
+        <SineIcon />
+      </button>
 
       <button
         type="button"
@@ -160,42 +81,6 @@ export default function IndicatorButtons() {
       >
         <OscillatorIcon />
       </button>
-
-      {menuOpen && createPortal(
-        <div
-          ref={popoverRef}
-          className="ind-btn-popover"
-          role="menu"
-          style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}
-        >
-          <div className="ind-btn-popover-title">Composite placement</div>
-          <label className="ind-btn-radio">
-            <input
-              type="radio"
-              name="compMode-toolbar"
-              value="pane"
-              checked={compositeMode === 'pane'}
-              onChange={() => { setCompositeMode('pane'); setMenuOpen(false); }}
-            />
-            <span>Own pane</span>
-          </label>
-          <label className="ind-btn-radio">
-            <input
-              type="radio"
-              name="compMode-toolbar"
-              value="overlay"
-              checked={compositeMode === 'overlay'}
-              onChange={() => { setCompositeMode('overlay'); setMenuOpen(false); }}
-            />
-            <span>Price overlay</span>
-          </label>
-          <div className="ind-btn-popover-hint">
-            overlay places the composite on the price pane with its own
-            auto-scaled y-axis (left); own-pane stacks it below.
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }

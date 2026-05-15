@@ -86,7 +86,6 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
   const paneSelected   = useScannerStore((s) => s.paneSelected);
   const showComposite  = useScannerStore((s) => s.showComposite);
   const showCRSI       = useScannerStore((s) => s.showCRSI);
-  const compositeMode  = useScannerStore((s) => s.compositeMode);
   const inSampleCorr   = useScannerStore((s) => s.inSampleCorr);
   const visibleCorr    = useScannerStore((s) => s.visibleCorr);
   const setComposite   = useScannerStore((s) => s.setComposite);
@@ -828,36 +827,35 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       const ind = new CompositeCycle();
       ind._composite = plotComposite;
 
-      if (compositeMode === 'overlay') {
-        // FintaChart 3.1.5+: properly overlay on the price pane with the
-        // composite's OWN auto-scaled y-axis. The composite values
-        // (roughly -100..+100) get their own left-side axis labels; price
-        // keeps the right-side axis.
-        //
-        // NOTE: we tried the declarative `needsCustomScale()` protocol
-        // (CompositeCycle returns true), which DID get FintaChart's pane
-        // lifecycle to auto-create + bind a custom scale — but the
-        // auto-created scale defaults to `leftAxisVisible: false` and
-        // `rightAxisVisible: false`, so the user sees the composite on
-        // price coordinates but no axis labels. Explicit creation +
-        // visibility setup is clearer.
-        const scale = chartRef.current.addVerticalScale();
-        scale.leftAxisVisible  = true;     // composite axis on the left
-        scale.rightAxisVisible = false;    // price keeps the right
-        ind.bindToVerticalScale(scale);
-        chartRef.current.primaryPane.addIndicator(ind);
-      } else {
-        // Own pane below price. We use `chart.addIndicators(ind)` with
-        // `ind.isOverlay = false` (set in CompositeCycle's onResetDefaults)
-        // — the indicator's default placement creates a new pane below
-        // price. `chart.addIndicatorInNewPane(ind)` is now ALSO a valid
-        // path as of 3.1.7 (the 3.1.6 crash inside `initPaneTitle` was
-        // fixed in `Indicator.placeOnPane` driving `chart.InitializeVisualDimensions()`
-        // and `pane.refreshScaleAsync()` before the title bar mounts).
-        // Either path works; this one stays for backward-compat with any
-        // 3.1.5 / 3.1.6 deployment that still uses the bundle.
-        chartRef.current.addIndicators(ind);
-      }
+      // Composite always starts as a price-pane overlay with its own
+      // auto-scaled left-side axis. Composite values (roughly -100..+100)
+      // get their own left-side labels; price keeps the right-side axis.
+      //
+      // Users who want the composite in its own pane right-click on the
+      // composite line → "Unmerge down" (FintaChart's built-in context-menu
+      // item). The reverse — "Move to price pane" — was added in 3.1.7 and
+      // auto-creates a VerticalScale with `leftAxisVisible = true` (same
+      // shape as the manual setup below), so switching back and forth via
+      // the right-click menu is lossless.
+      //
+      // Prior to 3.1.7 the demo app shipped a split-button placement
+      // popover (own pane vs overlay) — superseded by the native context
+      // menu. The popover pattern itself is still documented in the
+      // cycle-charting skill (`ui-patterns.md`) for skill consumers who
+      // need pre-add placement choice with persistence.
+      //
+      // NOTE: we tried the declarative `needsCustomScale()` protocol
+      // (CompositeCycle returns true), which DID get FintaChart's pane
+      // lifecycle to auto-create + bind a custom scale — but the
+      // auto-created scale defaults to `leftAxisVisible: false` and
+      // `rightAxisVisible: false`, so the user sees the composite on
+      // price coordinates but no axis labels. Explicit creation +
+      // visibility setup is clearer.
+      const scale = chartRef.current.addVerticalScale();
+      scale.leftAxisVisible  = true;     // composite axis on the left
+      scale.rightAxisVisible = false;    // price keeps the right
+      ind.bindToVerticalScale(scale);
+      chartRef.current.primaryPane.addIndicator(ind);
 
       compositeIndRef.current = ind;
       placeNowMarker(ind, '#8b949e');
@@ -981,7 +979,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
 
     chartRef.current.refreshAsync(true);
     return () => { cancelled = true; };
-  }, [selected, paneSelected, showComposite, showCRSI, compositeMode, bars, closes, apiKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected, paneSelected, showComposite, showCRSI, bars, closes, apiKey]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // (Removed in 3.1.6 refactor: an overlay-mode visible-range remap useEffect
   // that called mapCompositeToPriceRange() on every scroll/zoom with a 300ms

@@ -418,12 +418,6 @@ li.ind-toolbar-slot {
   gap: 6px;
 }
 
-.ind-btn-split {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-}
-
 .ind-btn {
   background: var(--bg-app);
   color: var(--text-muted);
@@ -454,66 +448,6 @@ li.ind-toolbar-slot {
   justify-content: center;
 }
 .ind-btn.ind-btn-icon svg { display: block; }
-
-/* Split-button glue — main + caret share a seam */
-.ind-btn-split .ind-btn-main {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-}
-.ind-btn-split .ind-btn-caret {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  border-left: none;
-  padding: 0 4px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Placement popover (Composite split-button) — portaled to document.body
-   with position:fixed (set inline by JSX from getBoundingClientRect). This
-   escapes FintaChart's `tcdToolbar-scroll-wrapper { overflow: hidden }`
-   which clips anything anchored under a toolbar button, regardless of
-   z-index. The high z-index (100001) is still required because FintaChart's
-   own toolbars/dialogs sit in the high-5-digit z-index range. */
-.ind-btn-popover {
-  min-width: 220px;
-  max-width: 280px;
-  background: var(--bg-panel);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  z-index: 100001;
-}
-.ind-btn-popover-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
-}
-.ind-btn-radio {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  user-select: none;
-}
-.ind-btn-radio input { margin: 0; cursor: pointer; }
-.ind-btn-popover-hint {
-  font-size: 10px;
-  color: var(--text-dim);
-  font-style: italic;
-  line-height: 1.4;
-  margin-top: 2px;
-}
 
 /* ─── Spectrum pane ───────────────────────────────────────────────────── */
 .spectrum-host { width: 100%; height: 100%; position: relative; }

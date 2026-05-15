@@ -21,7 +21,11 @@ export const useScannerStore = create((set, get) => ({
   paneSelected: new Set(),       // Set<cycleLength> of cycles to render in their own pane
   showComposite: true,
   showCRSI: false,
-  compositeMode: 'pane',         // 'pane' (own auto-scaled pane) | 'overlay' (mapped onto price)
+  // Composite placement: always starts as a price-pane overlay (with its own
+  // left-side auto-scaled axis). Users can right-click → "Unmerge down" to
+  // move it to its own pane, or right-click → "Move to price pane" to bring
+  // it back. FintaChart 3.1.7's context-menu items replaced our former
+  // split-button placement popover.
   // projectionBars now lives in useSettingsStore (persistent across reloads).
 
   // ─── Derived ─────────────────────────────────────────────────────────────
@@ -82,7 +86,6 @@ export const useScannerStore = create((set, get) => ({
 
   setShowComposite: (v) => set({ showComposite: v }),
   setShowCRSI: (v) => set({ showCRSI: v }),
-  setCompositeMode: (m) => set({ compositeMode: m === 'overlay' ? 'overlay' : 'pane' }),
   // setProjectionBars moved to useSettingsStore (persistent across reloads).
 
   reset: () =>
