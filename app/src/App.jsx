@@ -496,9 +496,54 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     // REPLAY_MODE_START_RECORD_SELECTED fires once when the user picks
     // the replay start bar. Run an immediate (un-throttled) initial scan
     // so the spectrum updates the moment replay engages.
+    //
+    // BEFORE the scan, extend the chart's barDataRows past the cursor so
+    // FC has bar positions to render the composite forecast onto. FC's
+    // replay mode truncates `barDataRows().close.length` to `cursor+1`
+    // — without this, the composite line clips at the replay cursor and
+    // the user can't see the cycle's forward projection (which is the
+    // whole point of running cycles in replay). We append `projectionBars`
+    // NaN bars with synthetic ascending dates past the cursor; FC's
+    // renderer iterates by chart index, so our composite values past the
+    // cursor (already computed across the full chart frame) render onto
+    // these padding bars.
+    //
+    // Known minor visual artifact: as the user forwards through replay,
+    // FC inserts each newly-revealed real bar at the END of barDataRows
+    // (not at the cursor position), so those bars accumulate at the right
+    // edge with chronologically-earlier dates. The composite line
+    // continues to render past the cursor (which is what matters); the
+    // date-axis labels at the very right edge may look slightly out of
+    // order. Acceptable for a "see the model predict forward" demo.
+    const ensureReplayProjectionBars = () => {
+      try {
+        const c = chartRef.current;
+        if (!c) return;
+        const rm = c.replayMode;
+        if (!rm || !Number.isFinite(rm.currentIndex)) return;
+        const bdr = c.barDataRows();
+        const lastIdx = bdr.close.length - 1;
+        if (lastIdx < 0) return;
+        const lastDate = bdr.date.value(lastIdx);
+        if (!(lastDate instanceof Date)) return;
+        const projectionBars = useSettingsStore.getState().projectionBars;
+        if (!projectionBars || projectionBars <= 0) return;
+        const future = new Array(projectionBars);
+        for (let i = 1; i <= projectionBars; i++) {
+          const d = new Date(lastDate.getTime());
+          d.setDate(d.getDate() + i);
+          future[i - 1] = { date: d, open: NaN, high: NaN, low: NaN, close: NaN, volume: NaN };
+        }
+        c.appendBars(future);
+      } catch (e) {
+        console.error('[replay projection append]', e);
+      }
+    };
+
     const onReplayStart = () => {
       if (replayScanTimer) { clearTimeout(replayScanTimer); replayScanTimer = null; }
       replayLastScannedIdx = -1;
+      ensureReplayProjectionBars();      // pad past-cursor bars so composite can render forward
       triggerReplayScan();
     };
 
