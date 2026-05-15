@@ -199,21 +199,25 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       };
     };
 
-    // 3.1.7 fixed the modal's internal filter to match against both
-    // `instrument.symbol` and `instrument.company` (was symbol-substring
-    // only in 3.1.6 — see CHANGELOG). Our previous workaround augmented
-    // the symbol field with the company text to force the substring
-    // match; with 3.1.7 that augmentation is no longer needed, so we
-    // return clean rows directly. The `normalise()` mapping of
-    // `shortName` → `company` is still needed because the modal renders
-    // the row text as `{symbol} {exchange} — {company}` and our REST
-    // returns the full name in `shortName`.
+    // 3.1.7 made two changes to the toolbar search modal:
     //
-    // Note: the `query` parameter name is what 3.1.7 docs call it. In
-    // earlier versions the same arg was documented as `symbol`. Same
-    // semantics either way.
+    //  1) The internal filter NOW matches the query against both
+    //     `instrument.symbol` AND `instrument.company` (was symbol-substring
+    //     only in 3.1.4–3.1.6). Good — `Apple` finds AAPL natively.
+    //  2) The row template changed: `_Left` (symbol only) + `_Right`
+    //     (exchange + type). **The `company` field moved to the row's
+    //     `title` attribute as a hover tooltip — it's NOT rendered
+    //     inline anymore.**
     //
-    // `lastResults` cache lets `filterById` hand back the same row
+    // The augmentation below was originally a (1)-workaround. With (2)
+    // it's now a (2)-workaround instead: we augment the `symbol` field
+    // with the company text so the visible row reads `AAPL · Apple Inc`
+    // and the user can disambiguate `AAPL` (US) vs `AAPL` (Buenos Aires)
+    // vs `AAPL` (Toronto) without hovering each one. `filterById` returns
+    // the CLEAN row from `lastResults` so the chart's toolbar label
+    // shows just the ticker after selection.
+    //
+    // `lastResults` cache lets `filterById` hand back the clean row
     // without re-hitting the API.
     FC.Instrument.filter = async (query, filters, page, size) => {
       try {
@@ -227,7 +231,13 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
           clean = clean.slice(start, start + size);
         }
         lastResults = clean;
-        return clean;
+        // Augment the symbol field for inline display in 3.1.7's
+        // _Left-only-symbol row layout. Without this, the company is
+        // only visible on hover.
+        return clean.map((c) => ({
+          ...c,
+          symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
+        }));
       } catch (e) {
         console.error('[FC.Instrument.filter]', e);
         return [];

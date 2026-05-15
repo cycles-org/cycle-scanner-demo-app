@@ -340,28 +340,40 @@ const chart = new FintaChart.Chart({ container, ... });   // ← then construct
 chart.exchanges = () => ['US', 'LSE', 'CRYPTO'];          // per-instance, AFTER is fine
 ```
 
-### Gotcha 2 — The modal's internal filter matches `symbol` substring only, NOT `company` *(fixed in 3.1.7)*
+### Gotcha 2 — Modal `symbol`-substring-only matching *(fixed in 3.1.7)* + new "company moved to tooltip" rendering quirk *(still open)*
 
-**Status:** ✅ **Fixed in 3.1.7.** The modal now matches the user's query against both `instrument.symbol` AND `instrument.company`. If you can pin your dependency to `^3.1.7`, return clean rows from `Instrument.filter` — no augmentation needed.
+**Status:** ✅ **Matching fixed in 3.1.7.** ⚠️ **Display of company name moved to a hover tooltip — augmentation still recommended.**
+
+What 3.1.7 did:
+1. **Fixed matching:** the modal now matches the user's query against both `instrument.symbol` AND `instrument.company`. Typing "Apple" with `AAPL`/`0R2V`/`603020` returning from your backend now finds all three — was symbol-substring only in 3.1.4–3.1.6.
+2. **Changed row template:** each row is now `tcdInstrumentSearchItem_Left` (symbol only) + `tcdInstrumentSearchItem_Right` (exchange + instrument type). The `company` field moved to the row's `title` attribute (`title="'AAPL' Apple Inc - US"`) — i.e. **shown only on hover, never inline**. Three Apple-related rows now read "AAPL US STOCK" / "0R2V LSE STOCK" / "603020 SHG STOCK" with no inline company name. Users can't disambiguate at a glance.
+
+The augmentation hack is now a **display-only workaround** in 3.1.7 (no longer needed for matching). Keep augmenting `symbol` with the company text in `filter()` so the visible row reads `AAPL · Apple Inc`; `filterById()` returns the clean symbol so the toolbar label after pick reads just `AAPL`.
 
 ```js
-// 3.1.7+ — clean return
+let lastResults = [];
+
 FintaChart.Instrument.filter = async (query, exchanges, page, size) => {
   const clean = await yourBackend.search(query);   // [{id, symbol, company, ...}]
-  lastResults = clean;
-  return clean;
+  // (paginate, exchange-filter on `clean` here if needed)
+  lastResults = clean;   // cache CLEAN for filterById
+  // Augment for inline display (3.1.7's new _Left-only-symbol row template
+  // hides company in the hover title — augmentation puts it back inline).
+  // Also forces the substring match for any consumer still on 3.1.4–3.1.6.
+  return clean.map((c) => ({
+    ...c,
+    symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
+  }));
+};
+
+FintaChart.Instrument.filterById = async (id) => {
+  const hit = lastResults.find((i) => String(i.id) === String(id));
+  if (hit) return hit;   // CLEAN — un-augmented symbol → toolbar shows just "AAPL"
+  // ...fallback for direct id lookups (state restore)
 };
 ```
 
-**Pre-3.1.7 history (kept for back-compat with 3.1.4 – 3.1.6 deployments):** the modal applied a client-side filter on top of what you returned: `normalizeSymbolForSearch(query)` was searched as a substring within `normalizeSymbolForSearch(result.symbol)`. The `company` / `description` fields were NOT checked. Typing "Apple" against a backend whose Apple instruments live under tickers `AAPL` / `0R2V` / `603020` silently rendered zero results. The workaround was to augment the symbol field so the substring match would pass, and return the clean symbol from `filterById` so the toolbar label stayed sane:
-
-```js
-// Pre-3.1.7 workaround — augment for the modal's substring filter
-return clean.map((c) => ({
-  ...c,
-  symbol: c.company ? `${c.symbol} · ${c.company}` : c.symbol,
-}));
-```
+This is the same pattern that worked in 3.1.4–3.1.6, just with a different rationale: pre-3.1.7 it bypassed the symbol-only matching bug; post-3.1.7 it puts the company name back where users can see it without hovering.
 
 Cosmetic note: `Instrument.filter`'s first parameter is now named `query` in 3.1.7 docs (was `symbol` previously). Semantics unchanged.
 
