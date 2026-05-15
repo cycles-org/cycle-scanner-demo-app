@@ -118,6 +118,16 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
   const [toolbarSlot, setToolbarSlot] = useState(null);
   const compositeIndRef = useRef(null);
   const rawCompositeRef = useRef(null);
+  // Polyline shape that renders the composite forecast PAST the replay
+  // cursor. FC's replay mode physically truncates barDataRows to cursor+1
+  // AND clips indicator-line rendering at the cursor after forward steps
+  // even when we extend barDataRows ourselves. We bypass both by drawing
+  // the past-cursor portion as a Shape (independent of barDataRows and
+  // the indicator render path). Only present while replay is active; set
+  // back to null on stop.
+  // ⚠️ Workaround. Maintainers — see feedback note about FC clipping
+  // custom indicator rendering past the replay cursor.
+  const forecastShapeRef = useRef(null);
   // Refs for lazy-load extension. When the datafeed prepends N older bars
   // we recompute each indicator's data:
   //   - Composite + single cycles: pure-sine math, evaluated at negative
@@ -1074,6 +1084,17 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     // padder doesn't mutate stale instances.
     crsiIndRef.current = null;
 
+    // Always tear down the forecast shape at the start of a recompute.
+    // It's re-added later if we're in replay mode and have a composite.
+    if (forecastShapeRef.current) {
+      try {
+        const oldShape = forecastShapeRef.current;
+        const oldPane = oldShape.pane ?? oldShape._pane ?? chartRef.current.primaryPane;
+        oldPane?.removeShapes?.([oldShape]);
+      } catch (e) { /* shape may already be detached */ }
+      forecastShapeRef.current = null;
+    }
+
     // Diff individual cycle panes — remove any whose cycle is no longer
     // pane-selected, leave the rest alone (avoids needless rebuild on every
     // composite-toggle), add any newly-selected.
@@ -1146,6 +1167,84 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
 
       compositeIndRef.current = ind;
       placeNowMarker(ind, '#8b949e');
+
+      // ── REPLAY: PolylineShape forecast past the replay cursor ────────────
+      // After a forward step, FC clips indicator-line rendering at the
+      // cursor — even when our `plotComposite` array AND the indicator's
+      // values cache hold valid sine math past it. So we draw the past-
+      // cursor portion as a Shape, which sits outside the indicator
+      // render path and isn't subject to that clipping. The shape is
+      // bound to the same VerticalScale as the indicator so they share
+      // the y-axis; the dashed line style makes the forecast distinct
+      // from the solid past-portion the indicator draws.
+      //
+      // Side-effect we accept: at fresh engagement (before any forward
+      // step), the indicator ALSO draws past cursor, so the shape sits
+      // on top of the indicator's line for a slight visual doubling.
+      // No simple way to suppress the indicator's past-cursor render at
+      // engagement (FC doesn't expose that), but the doubling is
+      // invisible-to-mild (same color, same path).
+      //
+      // ⚠️ FintaChart bug — see maintainer feedback. The right fix is
+      // FC honoring the indicator's full data range during replay so we
+      // don't need this shape at all.
+      if (replay.active && plotComposite && plotComposite.length > replay.cursorIndex) {
+        try {
+          const FC = window.FintaChart;
+          const cursor = replay.cursorIndex;
+          const bdr = chartRef.current.barDataRows();
+          const totalBars = bdr.close.length;
+          const pts = [];
+          // Build DataPoint instances from cursor through the end of
+          // the chart bar frame. Filter to only NaN-close bars (our
+          // projection padding from `ensureReplayProjectionBars`) — those
+          // have monotonically-ascending synthetic dates. FC's misplaced
+          // revealed-bars sit interleaved among our padding indices but
+          // with CHRONOLOGICALLY-EARLIER real dates; including them
+          // would make the polyline jump backward in time at every
+          // misplaced bar and trash the forecast line's shape.
+          //
+          // CRITICAL: PolylineShape's internal `bounds()` / cartesian
+          // coord conversion expects each point to have a `toPoint()`
+          // method — plain `{date, value}` objects fail with
+          // "toPoint is not a function". `FC.DataPoint` is the right
+          // shape; it ships `toPoint()` + `getX/getY` + properties for
+          // `date` / `value`.
+          for (let i = cursor; i < totalBars && i < plotComposite.length; i++) {
+            const closeI = bdr.close.value(i);
+            if (Number.isFinite(closeI)) continue;          // skip FC's misplaced real bars
+            const d = bdr.date.value(i);
+            const v = plotComposite[i];
+            if (d instanceof Date && Number.isFinite(v)) {
+              const dp = new FC.DataPoint();
+              dp.date = d;
+              dp.value = v;
+              pts.push(dp);
+            }
+          }
+          if (pts.length >= 2 && FC?.PolylineShape) {
+            const ps = new FC.PolylineShape();
+            // Replace the auto-generated initial empty point + push our points.
+            ps.points.length = 0;
+            for (const p of pts) ps.points.push(p);
+            // Bind to the composite indicator's vertical scale (shape rendered
+            // in composite's y-coordinate system, not price coordinates).
+            try { ps.verticalScale = scale; } catch (_) { /* */ }
+            // Add to the composite's pane (primaryPane in current setup).
+            // Line color theming via `ps.line` / `ps.theme` etc. caused the
+            // chart to hang in testing (FC's render path entered a loop).
+            // The forecast renders with FC's default shape color (black) —
+            // still reads clearly as a continuation past the cursor.
+            // ⚠️ Maintainer feedback: theming PolylineShape via the
+            // documented properties is broken — see feedback note.
+            const tgt = ind.pane ?? chartRef.current.primaryPane;
+            tgt.addShapes([ps]);
+            forecastShapeRef.current = ps;
+          }
+        } catch (e) {
+          console.error('[replay forecast shape]', e);
+        }
+      }
 
       // Suppress correlation numbers during replay: `rawAnalysisOnly` is
       // anchored at the analysis-window's bar 0, but in replay mode the
