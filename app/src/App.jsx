@@ -553,6 +553,34 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     // `LAST_BAR_UPDATED` and `TICK` are NOT fired per step in 3.1.7.
     // `replayLastScannedIdx` makes duplicate fires (e.g. burst forwards)
     // collapse into one scheduled scan via the throttle.
+    //
+    // Known visual artifact (not fixed in this MVP):
+    // FC appends each newly-revealed real bar at the END of `barDataRows`
+    // (chartBars-1), NOT at the cursor's position. Because our padding
+    // NaN bars sit at synthetic future dates past the cursor, FC's
+    // appended real bars land AFTER our padding with chronologically-
+    // earlier dates — producing a misplaced cluster of real candles at
+    // the chart's right edge after many forward steps.
+    //
+    // Attempted fixes that didn't work:
+    //  - `chart.trimDataRows(N)` keeps the LAST N bars (removes from
+    //    START), not the first N. There's no FC API to remove a single
+    //    bar from the END of barDataRows.
+    //  - `chart.removeDataRows(...)` takes data-row objects, not indices,
+    //    and operates on row series (date/open/high/low/close/volume),
+    //    not on individual bar positions.
+    //
+    // A clean fix would require either:
+    //  - PolylineShape-based forecast rendering (replace the composite
+    //    indicator's past-cursor portion with a shape independent of
+    //    barDataRows), OR
+    //  - Intercepting `chart.replayMode.forward()` and bypassing FC's
+    //    internal bar-append entirely.
+    //
+    // Both are larger reworks. For now we accept the artifact: initial
+    // engagement looks great (composite line projects 500 bars past the
+    // cursor as a clean sine forecast), and the artifact only becomes
+    // visible after many forward steps.
     const onReplayStep = () => {
       if (!chartRef.current?.isInReplayMode) return;
       const idx = chartRef.current.replayMode?.currentIndex;
