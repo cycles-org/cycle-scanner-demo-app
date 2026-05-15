@@ -16,7 +16,7 @@ description: >
 
 # FintaChart — Charting Library
 
-**Package:** `@fintatech/fintachart` (npm) · **Version covered:** **3.1.7** (latest as of 2026-05-14) · **License:** proprietary, free for local dev only · **Repo:** https://github.com/fintatech/fintachart
+**Package:** `@fintatech/fintachart` (npm) · **Version covered:** **3.1.8** (latest as of 2026-05-15) · **License:** proprietary, free for local dev only · **Repo:** https://github.com/fintatech/fintachart
 
 Browser-only canvas charting library for financial data. Single global namespace `FintaChart.*`.
 
@@ -67,6 +67,15 @@ Browser-only canvas charting library for financial data. Single global namespace
 > - Minor: text-overlap in the instrument search modal fixed via wider search window.
 >
 > **Still open in 3.1.7:** #3 (`chartType` setter throws — docs-only fix), #4 (`chart.instrument =` doesn't auto-flush — docs-only fix), #6 (`_values` clobbers — docs-only fix), #11 (per-indicator refresh), #13 (multi-indicator perf), #25 (`PointPlot.Style.DOT` no-op), plus 6 of the post-3.1.6 items: (d) `INSTRUMENT_CHANGED` payload variability, (e) field-name normalization for non-FSC1 datafeeds (`shortName` → `company`), (g) watermark polish, (h) `refreshAsync(true)` doesn't recompute indicator values, (i) no public API for custom toolbar buttons, (j) toolbar dropdowns only open on CSS `:hover`.
+>
+> **About v3.1.8 (released 2026-05-15).** Logo-only release — confirmed empirically by diffing the 3.1.7 → 3.1.8 npm tarballs:
+> - **`.d.ts` is byte-for-byte identical** to 3.1.7 — zero API surface change.
+> - **`htmldialogs/`**, **`localization/`**, **`css/`** all zero diff.
+> - **`img/svg-icons/`** gains two new files: `Logo-b-short.svg` and `Logo-b-2-dark-short.svg` (short-form variants of existing logos — likely a partial response to feedback **(g)** *FintaTech watermark logo too prominent, no theme adaptation*).
+> - **`scripts/FintaChart.min.js`**: 4,117,066 → 4,112,537 bytes (−4,529 bytes, ~0.11% shrinkage) — consistent with internal cleanup + the version-string change.
+> - **CHANGELOG** entry is the single line *"Minor bug fixes and improvements"*.
+>
+> **No items from the 3.1.7-open list are addressed in 3.1.8.** The new high-priority feedback item (**(k) Bar Replay clips custom-indicator rendering past the cursor**, discovered during the 3.1.7 integration work) is also still open. See `references/gotchas.md` § *Replay mode clips custom-indicator rendering past the cursor* for the full empirical write-up.
 >
 > **New gotchas in 3.1.5/3.1.6** (see `references/gotchas.md`):
 > - (a) `chart.addIndicatorInNewPane(ind)` crashes inside `initPaneTitle` with `appendChild(null)` — use `chart.addIndicators(ind)` with `isOverlay = false` instead.

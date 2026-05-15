@@ -1,6 +1,6 @@
 # FintaChart — Quirks & Gotchas
 
-This list is grounded in end-to-end validation against `@fintatech/fintachart@3.1.2`. Items are organized by current relevance — if you're on 3.1.2+, the *Open* and *Always relevant* sections are the ones that still bite.
+This list is grounded in end-to-end validation against `@fintatech/fintachart@3.1.2` and re-verified through `3.1.8` (the 3.1.8 bundle diff is purely a logo-SVG addition; no behavioural changes vs 3.1.7). Items are organized by current relevance — if you're on 3.1.2+, the *Open* and *Always relevant* sections are the ones that still bite.
 
 ## Always relevant
 
@@ -232,6 +232,8 @@ No consumer-side workaround required.
 ### Bar Replay hint
 
 3.1.4 added a `promptForStartRecord()` method on the `ReplayModeManager` that surfaces the localized prompt `"Click a bar to set the replay start point"` (in `localization/en.json:798`) when a user clicks Play / Forward / To-Real-Time before picking a bar. The "looks broken" UX papercut from 3.1.x is closed.
+
+> Note: this fix addressed only the "no prompt shown" UX papercut. The deeper Bar Replay issue — custom indicators clipping at the cursor when used for forward projection — is still open in 3.1.7 / 3.1.8. See *Replay mode clips custom-indicator rendering past the cursor* further down in the Open section.
 
 ---
 
@@ -479,6 +481,40 @@ When passing a precomputed array via the "bring your own data" pattern, the arra
 2. After padding, call `chart.refreshIndicators()` to recompute the cached values series (see "`refreshAsync(true)` does NOT recompute indicator values" above). Without this step the line lands on the wrong bars even though your array is now the right length.
 
 For indicators whose math doesn't extend into the projection window (e.g. CRSI / RSI / anything depending on real prices), pre-pad the trailing `MAX_PROJECTION_BARS` slots with NaN at creation time too — otherwise the indicator overflows into the projection range with stale-looking values or stops abruptly mid-chart on lazy-load.
+
+### Replay mode clips custom-indicator rendering past the cursor — open in 3.1.7 / 3.1.8
+
+The Bar Replay toolbar is the killer feature for cycle/quant analysis: engage at a historical point, walk forward, watch the model's prediction unfold against actual price. The data-side integration is fine — `BARS_APPENDED` fires on each forward step (NOT `LAST_BAR_UPDATED` or `TICK`, despite what the .d.ts suggests), the cursor index is readable via `chart.replayMode.currentIndex`, and the consumer can re-run any data-side computation against `chart.barDataRows()` closes up to the cursor. The rendering side is broken in several related ways:
+
+1. **`barDataRows` is physically truncated at engagement.** `chart.barDataRows().close.length` drops from the full chart bar count (e.g. 1350) to `cursor + 1` (e.g. 776). Indicator data populated at indices past the cursor is no longer accessible — `values.get(...).value(i)` returns FC's sentinel `5e-324` for those positions, even though our own internal `_composite[i]` still holds valid sine math.
+
+2. **Padding past the cursor breaks `forward()`.** Workaround for (1) — call `chart.appendBars(N NaN-close bars)` right after `REPLAY_MODE_START_RECORD_SELECTED` so FC's renderer has bar positions to draw indicator values onto. At engagement this works (composite line projects past cursor cleanly). But on each forward step, `replayMode.forward()` inserts the just-revealed real bar at `chartBars - 1` (the END of `barDataRows`), NOT at the cursor's true date position. With consumer padding at synthetic future dates, the revealed bar lands AFTER the padding with a chronologically-EARLIER date — producing a visible cluster of misplaced bars at the chart's right edge after a few forward steps.
+
+3. **Indicator-line rendering still clips at the cursor post-forward.** Even with workaround (2) keeping `barDataRows.length` extended, the indicator's rendered line clips at the cursor once the user clicks Forward. The indicator's `values.get('Composite').value(cursor + 50)` returns the right number — but the renderer doesn't draw it. Implies a cursor-bounded clip at the rendering layer independent of `barDataRows.length`.
+
+4. **`trimDataRows(N)` keeps the LAST N bars, NOT the first N.** Tried to clean up the misplaced bars from (2) by trimming them off the end. Empirically `trimDataRows(N)` removes from the START of `barDataRows`, keeping the last N bars (consistent with `trimDataRows(0)` clearing the chart, but the parameter name suggests the opposite semantics). No FC API to trim from the END of `barDataRows`. `chart.removeDataRows(...)` takes data-row objects, not indices.
+
+5. **`PolylineShape` works around the indicator clip but has its own issues.** Fall-back workaround: draw the past-cursor portion as a `FC.PolylineShape` since shapes are independent of `barDataRows` and not subject to the indicator clip. The shape's points must be `FC.DataPoint` instances (plain `{date, value}` objects fail with `"toPoint is not a function"` from the internal `bounds()` / cartesian conversion — `FC.DataPoint` ships the `toPoint()`/`getX/getY` methods). The forecast line renders, BUT:
+   - Setting `shape.line = {strokeColor, width}` writes the value (probe confirms) but the rendered line stays at the default theme (black). Setting all four observed theme locations (`.line`, `.theme`, `._options.line`, `._options.theme.line`) AND calling `chart.refreshAsync(true)` makes the color change reliably *from devtools* — but doing the same from a React/application code path causes FC's render to enter a loop that hangs the page.
+   - The shape create/remove cycle on every composite-recompute (which fires on each forward step) becomes slow after ~10–15 forwards and eventually hangs.
+
+6. **Default `now-marker` shapes from indicator lifecycle leak.** Each composite-recompute calls `placeNowMarker(ind)` which adds a vertical dashed shape. When the indicator is later removed, its previously-added marker shape stays attached to the pane. After ~10 replay forward steps (each triggering a composite-recompute), 8 leaked single-point shapes accumulate on the pane.
+
+**Available events (worth knowing):**
+
+| Event | Fires |
+|---|---|
+| `FC.ChartEvent.REPLAY_MODE_START_RECORD_SELECTED` | Once when user picks a start bar |
+| `FC.ChartEvent.REPLAY_MODE_STOPPED` | When `toRealTime` is invoked |
+| `FC.ChartEvent.BARS_APPENDED` | **Every forward step (the per-step signal)** |
+| `FC.ChartEvent.LAST_BAR_UPDATED` / `FC.ChartEvent.TICK` | Documented per-step events, but do NOT fire on replay forward in 3.1.7 / 3.1.8 |
+| Per-indicator `onReplayModeStartRecordSelected(event)` / `onReplayModeStopped()` | Protected lifecycle hooks |
+
+**`replayMode.stopReplayMode()` does NOT actually exit replay in 3.1.7 / 3.1.8.** The user-facing exit path is `toRealTime` (which fires `REPLAY_MODE_STOPPED`). Hook the event, not the method.
+
+**Reasonable strategy until upstream fixes land:** wire the data-side integration (re-scan the spectrum + re-fit indicators on each `BARS_APPENDED` against the chart's closes up to the cursor), accept that custom indicators clip at the cursor visually, surface a "REPLAY · bar N" chip so the user knows the rendered indicator is scoped to a historical point. The cycle-evolution part of the feature works; only the forward-projection rendering is missing.
+
+Full empirical write-up and the integration-side recipe live in `cycle-charting/references/replay-integration.md`.
 
 ### Useful d.ts grep targets
 
