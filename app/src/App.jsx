@@ -91,6 +91,7 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
   const setComposite   = useScannerStore((s) => s.setComposite);
   const setCrsiResp    = useScannerStore((s) => s.setCrsiResp);
   const setCorrelations = useScannerStore((s) => s.setCorrelations);
+  const replay         = useScannerStore((s) => s.replay);
 
   // Persistent user settings (lookback for cycle scanner, projection bars,
   // lazy-load batch size). Lookback drives both the initial fetch size and
@@ -361,6 +362,187 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     };
     chart.on(FC.ChartEvent.TIME_FRAME_CHANGED, onTimeFrameChanged);
 
+    // ── Replay mode → re-scan cycle spectrum each step ───────────────────
+    // FintaChart 3.1.x ships a built-in bar-replay UI (toolbar's play /
+    // forward / jumpTo / toRealTime). When engaged, the user "walks
+    // forward" through history bar by bar. We hook the lifecycle events
+    // and re-run the cycle scanner against a rolling window ending at the
+    // replay cursor, so the spectrum and composite evolve as the user
+    // steps. Settings (throttled per-step, nearest-neighbor selection,
+    // forward projection past cursor, fixed-lookback window) are
+    // documented in cycle-charting/references/replay-mode.md.
+    //
+    // Per-step detection: FC publishes lifecycle events for replay
+    // start/stop but NO public per-step event. We poll `currentIndex`
+    // from inside `LAST_BAR_UPDATED` + `TICK` handlers — both fire when
+    // the replay manager mutates the visible data. Throttle (400ms) +
+    // monotonic version counter make stale-response races safe.
+    //
+    // `apiKey` is captured here; it's stable for the ScannerApp lifetime
+    // (logout unmounts). `cycleLookback`, `selected`, etc. are read
+    // fresh via `useSettingsStore.getState()` / `useScannerStore.getState()`
+    // at scan time so settings-dialog changes during replay take effect.
+    const REPLAY_SCAN_THROTTLE_MS = 400;
+    const NEAREST_NEIGHBOR_TOLERANCE = 0.20;   // 20% — drop selection beyond this
+    let replayScanVersion = 0;
+    let replayScanTimer = null;
+    let replayLastScannedIdx = -1;
+
+    // Map an old set of selected cycle lengths to the closest available
+    // peaks in the new spectrum. Drops any selection whose closest peak is
+    // more than NEAREST_NEIGHBOR_TOLERANCE off (e.g. user picked 154, new
+    // closest is 12 → no meaningful match → drop it). If everything drops,
+    // fall back to rank-1 dominant so the composite isn't empty.
+    const mapSelectionNearest = (oldSelected, newPeaks) => {
+      const next = new Set();
+      for (const oldLen of oldSelected) {
+        if (!Number.isFinite(oldLen) || oldLen <= 0) continue;
+        let best = null;
+        for (const p of newPeaks) {
+          const d = Math.abs(p.cycleLength - oldLen);
+          if (!best || d < best.d) best = { peak: p, d };
+        }
+        if (best && best.d / oldLen <= NEAREST_NEIGHBOR_TOLERANCE) {
+          next.add(best.peak.cycleLength);
+        }
+      }
+      if (next.size === 0 && newPeaks.length > 0) {
+        const top = newPeaks.find((p) => p.dominantRank === 1) ?? newPeaks[0];
+        next.add(top.cycleLength);
+      }
+      return next;
+    };
+
+    // Run one cycle scan against a closes slice; write peaks/spectrum/trend/
+    // selected/replay into the store. Version-guarded against concurrent
+    // calls (in-flight throttle timers from replay + restore-on-exit).
+    const runScanAtSlice = async ({ closesSlice, scanOffset, cursorIndex, markReplayActive }) => {
+      if (!closesSlice || closesSlice.length < 50) return;
+      const version = ++replayScanVersion;
+      try {
+        const [scan, trendArr] = await Promise.all([
+          cycleScanner(closesSlice, apiKey, { includeSpectrum: true }),
+          detrendTrend(closesSlice, apiKey),
+        ]);
+        if (version !== replayScanVersion) return;
+        const newPeaks = filterAndSortPeaks(scan?.peaks ?? [], closesSlice.length);
+        const cur = useScannerStore.getState();
+        const newSelected = mapSelectionNearest(cur.selected, newPeaks);
+        useScannerStore.setState({
+          peaks: newPeaks,
+          spectrum: scan?.spectrum ?? [],
+          cycleStart: scan?.cycleStart ?? 30,
+          cycleResolution: scan?.cycleResolution ?? 1.0,
+          trend: trendArr ?? [],
+          selected: newSelected,
+          replay: markReplayActive
+            ? { active: true, cursorIndex, scanOffset }
+            : { active: false, cursorIndex: -1, scanOffset: 0 },
+        });
+      } catch (e) {
+        if (version !== replayScanVersion) return;
+        console.error('[replay scan]', e);
+      }
+    };
+
+    // Build the scan slice from the chart's current bars, ending at the
+    // replay cursor. Uses the live cycleLookback (settings-dialog tunable).
+    //
+    // Edge case: the chart appends MAX_PROJECTION_BARS NaN bars at the end
+    // for forward-projection rendering. If the user's replay-start click
+    // (or a programmatic engagement) lands inside the projection range,
+    // the slice would extend into NaN territory and the cycle scanner
+    // would return zero peaks. We clamp `cursor` to the last real bar
+    // (last bar with a finite close). The replay chip still reports the
+    // ACTUAL FC cursor (the user's click position) so the divergence is
+    // visible — the scan just runs against the last real data.
+    const triggerReplayScan = () => {
+      if (!chartRef.current?.isInReplayMode) return;
+      const rm = chartRef.current.replayMode;
+      if (!rm) return;
+      const rawCursor = rm.currentIndex;
+      if (!Number.isFinite(rawCursor) || rawCursor < 0) return;
+      const lookback = useSettingsStore.getState().cycleLookback;
+      const rows = chartRef.current.barDataRows();
+      // Walk left until we find a real bar — handles projection-range clicks.
+      let realCursor = Math.min(rawCursor, rows.close.length - 1);
+      while (realCursor >= 0 && !Number.isFinite(rows.close.value(realCursor))) {
+        realCursor--;
+      }
+      if (realCursor < 50) return;          // need a minimum window for a useful scan
+      const sliceStart = Math.max(0, realCursor - lookback + 1);
+      const sliceLen = realCursor - sliceStart + 1;
+      const closesSlice = new Array(sliceLen);
+      for (let i = 0; i < sliceLen; i++) {
+        closesSlice[i] = rows.close.value(sliceStart + i);
+      }
+      replayLastScannedIdx = rawCursor;     // dedupe on the raw FC index, not the clamped one
+      runScanAtSlice({
+        closesSlice,
+        scanOffset: sliceStart,
+        cursorIndex: rawCursor,            // chip shows where the FC cursor actually is
+        markReplayActive: true,
+      });
+    };
+
+    const scheduleReplayScan = () => {
+      if (replayScanTimer) return;        // already scheduled
+      replayScanTimer = setTimeout(() => {
+        replayScanTimer = null;
+        triggerReplayScan();
+      }, REPLAY_SCAN_THROTTLE_MS);
+    };
+
+    // REPLAY_MODE_START_RECORD_SELECTED fires once when the user picks
+    // the replay start bar. Run an immediate (un-throttled) initial scan
+    // so the spectrum updates the moment replay engages.
+    const onReplayStart = () => {
+      if (replayScanTimer) { clearTimeout(replayScanTimer); replayScanTimer = null; }
+      replayLastScannedIdx = -1;
+      triggerReplayScan();
+    };
+
+    // Per-step detection: empirically verified — `BARS_APPENDED` fires on
+    // every replay-mode forward step (FC's replay manager appends one
+    // bar from `originDataRows` to the visible series on each tick).
+    // `LAST_BAR_UPDATED` and `TICK` are NOT fired per step in 3.1.7.
+    // `replayLastScannedIdx` makes duplicate fires (e.g. burst forwards)
+    // collapse into one scheduled scan via the throttle.
+    const onReplayStep = () => {
+      if (!chartRef.current?.isInReplayMode) return;
+      const idx = chartRef.current.replayMode?.currentIndex;
+      if (!Number.isFinite(idx) || idx === replayLastScannedIdx) return;
+      scheduleReplayScan();
+    };
+
+    // REPLAY_MODE_STOPPED fires when the user exits replay (close button,
+    // toRealTime). Restore the live state: re-run the full-window scan
+    // against the analysis bars in the store, with offset 0. Reuses the
+    // same scan path so selection-mapping behaves consistently.
+    const onReplayStop = () => {
+      if (replayScanTimer) { clearTimeout(replayScanTimer); replayScanTimer = null; }
+      replayLastScannedIdx = -1;
+      const state = useScannerStore.getState();
+      const closesArr = state.closes;
+      if (!closesArr || closesArr.length < 50) {
+        // No live data yet — just clear replay state.
+        useScannerStore.setState({
+          replay: { active: false, cursorIndex: -1, scanOffset: 0 },
+        });
+        return;
+      }
+      runScanAtSlice({
+        closesSlice: closesArr,
+        scanOffset: 0,
+        cursorIndex: -1,
+        markReplayActive: false,
+      });
+    };
+
+    chart.on(FC.ChartEvent.REPLAY_MODE_START_RECORD_SELECTED, onReplayStart);
+    chart.on(FC.ChartEvent.REPLAY_MODE_STOPPED, onReplayStop);
+    chart.on(FC.ChartEvent.BARS_APPENDED, onReplayStep);
+
     // Tell FintaChart to relayout when its container changes size.
     // 3.1.5/3.1.6 added an internal ResizeObserver to the bundle (single
     // `new ResizeObserver(...)` in scripts/FintaChart.min.js), so this is
@@ -458,6 +640,10 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       try { ro.disconnect(); } catch (_) {}
       try { chart.off?.(FC.ChartEvent.INSTRUMENT_CHANGED, onInstrumentChanged); } catch (_) {}
       try { chart.off?.(FC.ChartEvent.TIME_FRAME_CHANGED, onTimeFrameChanged); } catch (_) {}
+      try { chart.off?.(FC.ChartEvent.REPLAY_MODE_START_RECORD_SELECTED, onReplayStart); } catch (_) {}
+      try { chart.off?.(FC.ChartEvent.REPLAY_MODE_STOPPED, onReplayStop); } catch (_) {}
+      try { chart.off?.(FC.ChartEvent.BARS_APPENDED, onReplayStep); } catch (_) {}
+      if (replayScanTimer) { try { clearTimeout(replayScanTimer); } catch (_) {} replayScanTimer = null; }
       try { chart.dispose(); } catch (_) {}
       chartRef.current = null;
       datafeedRef.current = null;
@@ -737,40 +923,66 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
     // its values must align to chart bars at the same indices.
     //
     // For composite + single cycles (pure sine math), we just call
-    // `buildCompositeSeries(cycles, chartBarCount, frontPad)` — the offset
-    // tells the formula that output index 0 corresponds to time `-frontPad`
-    // in the scan's original frame. So the sine waves extend BACKWARD over
-    // any lazy-loaded older bars without rescanning.
+    // `buildCompositeSeries(cycles, chartBarCount, scanSliceOffset)` — the
+    // offset tells the formula that output index 0 corresponds to time
+    // `-scanSliceOffset` in the scan's original frame. So the sine waves
+    // extend backward over any lazy-loaded older bars (live mode) or wrap
+    // around the rolling replay window (replay mode) without rescanning.
     //
     // For CRSI (server-computed), we re-fetch with the full available history
     // (the chart's `barDataRows` excluding the future-projection range). The
     // result aligns to chart bars [0..histLen-1]; we pad trailing NaN for
     // the projection range. CRSI is causal so values at the original-window
     // positions are unchanged.
+    //
+    // In replay mode the offset comes from `replay.scanOffset` (the
+    // chart-frame index where the scan slice's relative bar 0 sits — i.e.
+    // `cursor - lookback + 1`), and CRSI is computed against closes up to
+    // the cursor only (FC visually masks past-cursor anyway, so anything
+    // beyond is NaN-padded). The composite is still built for the full
+    // `chartBarCount` so the sine math projects past the cursor into the
+    // hidden-but-real future bars — visually demonstrating prediction vs
+    // reality as the user steps forward.
     const chartBarCount = chartRef.current.barDataRows().close.length;
     const intendedLen   = bars.length + MAX_PROJECTION_BARS;
     const frontPad      = Math.max(0, chartBarCount - intendedLen);
+    // Single offset used by the composite formula in all modes:
+    //   - replay active           → `replay.scanOffset` (cursor - lookback + 1)
+    //   - live, post-lazy-load    → `frontPad`
+    //   - live, no lazy-load      → 0 (frontPad collapses to 0)
+    const scanSliceOffset = replay.active ? replay.scanOffset : frontPad;
 
-    // Read the extended historical-only close series from the chart (used for
-    // CRSI refetch — covers both the original analysis window AND any
-    // lazy-loaded older bars, but excludes the future projection bars whose
-    // close is NaN).
+    // Read the historical-only close series the CRSI refetch needs.
+    // Live mode: the full chart history (excludes the projection NaN range).
+    // Replay mode: only up to the replay cursor — FC visually clips past
+    // the cursor, so producing CRSI values there would be meaningless.
+    // Also clamp to the last real bar (chart appends NaN projection bars
+    // at the end; the cursor may legitimately land inside that range if
+    // the user clicked past the last real data, and CRSI on NaN poisons
+    // the result).
     const getExtendedHistoricalCloses = () => {
       const rows = chartRef.current.barDataRows();
       const total = rows.close.length;
-      const histLen = total - MAX_PROJECTION_BARS;
-      if (histLen <= 0) return [];
-      const out = new Array(histLen);
-      for (let i = 0; i < histLen; i++) out[i] = rows.close.value(i);
+      const lastRealBar = total - MAX_PROJECTION_BARS - 1;
+      const upper = replay.active
+        ? Math.min(replay.cursorIndex + 1, lastRealBar + 1)
+        : total - MAX_PROJECTION_BARS;
+      if (upper <= 0) return [];
+      const out = new Array(upper);
+      for (let i = 0; i < upper; i++) out[i] = rows.close.value(i);
       return out;
     };
 
-    // Pad a CRSI/UB/LB response with trailing NaN so it covers the
-    // projection range (CRSI isn't forward-projectable — depends on real
-    // prices). Output length = raw.length + MAX_PROJECTION_BARS.
+    // Pad a CRSI/UB/LB response with trailing NaN so it covers the full
+    // chart bar count. In live mode, the raw response length is
+    // `chartBarCount - MAX_PROJECTION_BARS`; in replay mode it's
+    // `cursorIndex + 1`. Either way pad to `chartBarCount`.
     const padCrsiTrailing = (raw) => {
-      const out = new Array((raw?.length ?? 0) + MAX_PROJECTION_BARS).fill(NaN);
-      if (raw) for (let i = 0; i < raw.length; i++) out[i] = raw[i];
+      const out = new Array(chartBarCount).fill(NaN);
+      if (raw) {
+        const n = Math.min(raw.length, chartBarCount);
+        for (let i = 0; i < n; i++) out[i] = raw[i];
+      }
       return out;
     };
 
@@ -813,13 +1025,15 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       // Two computations:
       //   - `rawAnalysisOnly` covers [analysis + projection], anchored at the
       //     scan's index 0. Used for correlation math and the scanner store.
-      //     Stable across lazy-loads because it doesn't depend on frontPad.
+      //     Stable across lazy-loads because it doesn't depend on the offset.
       //   - `plotComposite` covers the FULL chart bar count with offset =
-      //     frontPad so the sine waves extend backward over any
-      //     already-lazy-loaded older bars (without rescanning).
+      //     `scanSliceOffset` (lazy-load frontPad in live mode; cursor-aligned
+      //     slice start in replay mode) so the sine waves extend backward
+      //     over older bars AND forward past the replay cursor without
+      //     rescanning.
       const rawAnalysisOnly = buildCompositeSeries(selectedCycles, totalBars, 0);
-      const plotComposite = frontPad > 0
-        ? buildCompositeSeries(selectedCycles, chartBarCount, frontPad)
+      const plotComposite = scanSliceOffset > 0
+        ? buildCompositeSeries(selectedCycles, chartBarCount, scanSliceOffset)
         : rawAnalysisOnly;
       rawCompositeRef.current = rawAnalysisOnly;
       setComposite(rawAnalysisOnly);
@@ -860,9 +1074,20 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       compositeIndRef.current = ind;
       placeNowMarker(ind, '#8b949e');
 
-      const inSample = weightedInSampleCorrelation(rawAnalysisOnly, closes, closes.length);
-      const visible = pearson(rawAnalysisOnly, closes, 0, closes.length - 1);
-      setCorrelations({ inSampleCorr: inSample, visibleCorr: visible });
+      // Suppress correlation numbers during replay: `rawAnalysisOnly` is
+      // anchored at the analysis-window's bar 0, but in replay mode the
+      // scan ran on a rolling-window slice with a different anchor, so
+      // pearson(rawAnalysisOnly, closes) would compare misaligned series.
+      // Computing correlations against the replay slice properly is a
+      // polish item — for now we suppress to avoid showing misleading
+      // numbers in the header.
+      if (replay.active) {
+        setCorrelations({ inSampleCorr: NaN, visibleCorr: NaN });
+      } else {
+        const inSample = weightedInSampleCorrelation(rawAnalysisOnly, closes, closes.length);
+        const visible = pearson(rawAnalysisOnly, closes, 0, closes.length - 1);
+        setCorrelations({ inSampleCorr: inSample, visibleCorr: visible });
+      }
     } else {
       compositeIndRef.current = null;
       rawCompositeRef.current = null;
@@ -885,11 +1110,13 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       SingleCycleIndicator._nextColor = PANE_PALETTE[i % PANE_PALETTE.length];
       const ind = new SingleCycleIndicator();
       ind._cycleLength = len;
-      // If older bars were lazy-loaded before this indicator was created,
-      // recompute over the full chart bar count with offset=frontPad so the
-      // sine wave extends backward over those older bars.
-      ind._cycleSeries = frontPad > 0
-        ? buildCompositeSeries([peak], chartBarCount, frontPad)
+      // If we need an offset (older bars lazy-loaded in live mode, or the
+      // replay cursor is past the analysis start in replay mode), recompute
+      // over the full chart bar count with `scanSliceOffset` so the sine
+      // wave extends backward over those older bars / forward past the
+      // replay cursor.
+      ind._cycleSeries = scanSliceOffset > 0
+        ? buildCompositeSeries([peak], chartBarCount, scanSliceOffset)
         : series;
       chartRef.current.addIndicators(ind);
       placeNowMarker(ind, '#8b949e');
@@ -906,12 +1133,16 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
       const len = autoCrsiLength(selectedCycles);
       if (!len || len < 5) { setCrsiResp(null); return; }
       try {
-        // If older bars have been lazy-loaded already (frontPad > 0), fetch
-        // CRSI over the EXTENDED close history so the line covers all
-        // visible bars from the start. CRSI is causal — values at the
-        // original-window positions are unchanged whether we include the
-        // older bars or not.
-        const fetchCloses = frontPad > 0 ? getExtendedHistoricalCloses() : closes;
+        // Pick the CRSI input window:
+        //   - replay mode: closes[0..cursor] (FC clips past-cursor visually,
+        //     producing values past the cursor would be meaningless).
+        //   - lazy-load mode (frontPad > 0): extended history from the chart.
+        //   - otherwise: the analysis-window closes from the store.
+        // `getExtendedHistoricalCloses` already encodes the replay-vs-live
+        // upper-bound choice.
+        const fetchCloses = (replay.active || frontPad > 0)
+          ? getExtendedHistoricalCloses()
+          : closes;
         const version = ++crsiFetchVersion.current;
         const resp = await crsi(fetchCloses, len, apiKey);
         if (cancelled || version !== crsiFetchVersion.current) return;
@@ -979,7 +1210,11 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
 
     chartRef.current.refreshAsync(true);
     return () => { cancelled = true; };
-  }, [selected, paneSelected, showComposite, showCRSI, bars, closes, apiKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+    // `peaks` and `replay.*` are in the deps because replay-mode rescans
+    // mutate them WITHOUT mutating `bars`/`closes` — the effect must re-run
+    // when peaks shift (new spectrum) and when the replay state itself
+    // changes (e.g. cursor advance updates `scanOffset`).
+  }, [selected, paneSelected, showComposite, showCRSI, bars, closes, peaks, replay.active, replay.scanOffset, replay.cursorIndex, apiKey]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // (Removed in 3.1.6 refactor: an overlay-mode visible-range remap useEffect
   // that called mapCompositeToPriceRange() on every scroll/zoom with a 300ms
@@ -1039,6 +1274,14 @@ function ScannerApp({ apiKey, theme, onThemeChange, onLogout }) {
               ) : null;
             })()}
             {sampleLabel && <span className="sample-label">{sampleLabel}</span>}
+            {replay.active && (
+              <span
+                className="replay-chip"
+                title="cycle spectrum is being recomputed on each replay step"
+              >
+                REPLAY · bar {replay.cursorIndex}
+              </span>
+            )}
           </div>
         )}
 

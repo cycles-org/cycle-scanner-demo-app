@@ -28,6 +28,21 @@ export const useScannerStore = create((set, get) => ({
   // split-button placement popover.
   // projectionBars now lives in useSettingsStore (persistent across reloads).
 
+  // ─── Replay mode ─────────────────────────────────────────────────────────
+  // When FintaChart's built-in bar-replay is engaged, the cycle pipeline
+  // re-runs against a rolling window ending at the replay cursor. `peaks` /
+  // `spectrum` / `trend` / `selected` get rewritten on each (throttled) step
+  // so the spectrum evolves visibly. `scanOffset` is the chart-frame index
+  // of the scan slice's first bar (so the composite formula's `offset`
+  // parameter knows where the scan's relative index 0 lands on the chart).
+  // In live mode `active: false` and the existing `frontPad` math drives
+  // the offset.
+  replay: {
+    active: false,        // true between REPLAY_MODE_START_RECORD_SELECTED and REPLAY_MODE_STOPPED
+    cursorIndex: -1,      // chart.replayMode.currentIndex at the last scan
+    scanOffset: 0,        // chart-frame index of the scan slice's bar 0
+  },
+
   // ─── Derived ─────────────────────────────────────────────────────────────
   composite: [],                 // mapped to price range, length = bars.length + projection
   crsiResp: null,                // { crsi, ub, lb } — recomputed when selected changes
@@ -86,6 +101,7 @@ export const useScannerStore = create((set, get) => ({
 
   setShowComposite: (v) => set({ showComposite: v }),
   setShowCRSI: (v) => set({ showCRSI: v }),
+  setReplay: (patch) => set((s) => ({ replay: { ...s.replay, ...patch } })),
   // setProjectionBars moved to useSettingsStore (persistent across reloads).
 
   reset: () =>
