@@ -16,7 +16,7 @@ description: >
 
 # FintaChart — Charting Library
 
-**Package:** `@fintatech/fintachart` (npm) · **Version covered:** **3.1.8** (latest as of 2026-05-15) · **License:** proprietary, free for local dev only · **Repo:** https://github.com/fintatech/fintachart
+**Package:** `@fintatech/fintachart` (npm) · **Version covered:** **3.1.9** (latest as of 2026-05-15) · **License:** proprietary, free for local dev only · **Repo:** https://github.com/fintatech/fintachart
 
 Browser-only canvas charting library for financial data. Single global namespace `FintaChart.*`.
 
@@ -75,7 +75,9 @@ Browser-only canvas charting library for financial data. Single global namespace
 > - **`scripts/FintaChart.min.js`**: 4,117,066 → 4,112,537 bytes (−4,529 bytes, ~0.11% shrinkage) — consistent with internal cleanup + the version-string change.
 > - **CHANGELOG** entry is the single line *"Minor bug fixes and improvements"*.
 >
-> **No items from the 3.1.7-open list are addressed in 3.1.8.** The new high-priority feedback item (**(k) Bar Replay clips custom-indicator rendering past the cursor**, discovered during the 3.1.7 integration work) is also still open. See `references/gotchas.md` § *Replay mode clips custom-indicator rendering past the cursor* for the full empirical write-up.
+> **No items from the 3.1.7-open list are addressed in 3.1.8.** The new high-priority feedback item (**(k) Bar Replay clips custom-indicator rendering past the cursor**, discovered during the 3.1.7 integration work) is also still open in 3.1.8.
+>
+> **About v3.1.9 (released 2026-05-15, late evening).** ✅ **Closes (k) — the Bar Replay forecast-clipping issue.** New private `ReplayModeManager` methods (`_projectionCount`, `countTrailingPlaceholders`, `appendProjectionPlaceholders`, `revealNextReplayBar`, `revealInPlace`) preserve trailing NaN-projection placeholder bars past the cursor at engagement AND insert revealed bars in-place at the cursor's true date position on each forward step. Empirically verified: composite line projects 3+ full sine cycles past the replay cursor at engagement; projection window stays at 499 bars wide across 20 forward steps with zero misplaced real bars. No public API change — the fix is transparent; existing replay code that appends NaN-projection bars in live mode automatically gets the new behaviour during replay.
 >
 > **New gotchas in 3.1.5/3.1.6** (see `references/gotchas.md`):
 > - (a) `chart.addIndicatorInNewPane(ind)` crashes inside `initPaneTitle` with `appendChild(null)` — use `chart.addIndicators(ind)` with `isOverlay = false` instead.

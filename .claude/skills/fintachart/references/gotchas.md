@@ -1,6 +1,6 @@
 # FintaChart — Quirks & Gotchas
 
-This list is grounded in end-to-end validation against `@fintatech/fintachart@3.1.2` and re-verified through `3.1.8` (the 3.1.8 bundle diff is purely a logo-SVG addition; no behavioural changes vs 3.1.7). Items are organized by current relevance — if you're on 3.1.2+, the *Open* and *Always relevant* sections are the ones that still bite.
+This list is grounded in end-to-end validation against `@fintatech/fintachart@3.1.2` and re-verified through `3.1.9`. 3.1.8 was logo-only; 3.1.9 closed our (k) Bar Replay forecast-clipping feedback item with a transparent fix. Items are organized by current relevance — if you're on 3.1.2+, the *Open* and *Always relevant* sections are the ones that still bite.
 
 ## Always relevant
 
@@ -482,7 +482,11 @@ When passing a precomputed array via the "bring your own data" pattern, the arra
 
 For indicators whose math doesn't extend into the projection window (e.g. CRSI / RSI / anything depending on real prices), pre-pad the trailing `MAX_PROJECTION_BARS` slots with NaN at creation time too — otherwise the indicator overflows into the projection range with stale-looking values or stops abruptly mid-chart on lazy-load.
 
-### Replay mode clips custom-indicator rendering past the cursor — open in 3.1.7 / 3.1.8
+### Replay mode clips custom-indicator rendering past the cursor — ✅ Closed in 3.1.9 (was the (k) feedback item, open in 3.1.7 / 3.1.8)
+
+> **Status:** Fixed in **3.1.9** (2026-05-15, late evening). The 6-item observation chain below is preserved for historical reference; if you're on 3.1.9+ none of it bites you. The fix added (private) `_projectionCount` + `countTrailingPlaceholders()` + `appendProjectionPlaceholders()` + `revealNextReplayBar()` + `revealInPlace()` methods to `ReplayModeManager`. Consumers that append NaN-OHLC bars at the end of `barDataRows` for forward-projection rendering (the standard pattern in `cycle-charting`) automatically get: `barDataRows` not truncated to `cursor + 1` at engagement, revealed bars written **in-place** at the cursor's true position, indicator values cache populated past cursor, renderer drawing the forecast line. No public API change. Verified empirically with our cycle-charting reference implementation: composite line projects 3+ full sine cycles past the replay cursor at engagement; 0 misplaced real bars after 20 forward steps.
+
+The 6 observations below describe the behaviour in **3.1.7 / 3.1.8** (kept for historical reference; the fix in 3.1.9 transparently addresses them all):
 
 The Bar Replay toolbar is the killer feature for cycle/quant analysis: engage at a historical point, walk forward, watch the model's prediction unfold against actual price. The data-side integration is fine — `BARS_APPENDED` fires on each forward step (NOT `LAST_BAR_UPDATED` or `TICK`, despite what the .d.ts suggests), the cursor index is readable via `chart.replayMode.currentIndex`, and the consumer can re-run any data-side computation against `chart.barDataRows()` closes up to the cursor. The rendering side is broken in several related ways:
 
